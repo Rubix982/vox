@@ -1,0 +1,1262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice → Claude Code (local Whisper)</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161922;
+    --panel-2: #1c2030;
+    --border: #2a2f3d;
+    --text: #e6e8ee;
+    --text-dim: #9aa1b2;
+    --text-faint: #6c7384;
+    --accent: #7aa2f7;
+    --accent-2: #9ece6a;
+    --danger: #f7768e;
+    --warn: #e0af68;
+    --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-2: #f0f2f6;
+      --border: #d8dde6;
+      --text: #1a1d24;
+      --text-dim: #4b5160;
+      --text-faint: #8a90a0;
+      --accent: #2e5cff;
+      --accent-2: #2e8b57;
+      --danger: #c43054;
+      --warn: #b4790c;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.5; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 20px 80px; }
+  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; letter-spacing: -0.01em; }
+  .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 22px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .row + .row { margin-top: 12px; }
+  .grow { flex: 1; min-width: 0; }
+  .spacer { margin-left: auto; }
+
+  button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 9px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, transform 0.05s;
+  }
+  button:hover:not(:disabled) { background: var(--border); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #0a1226; font-weight: 600; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+  button.danger { background: var(--danger); border-color: var(--danger); color: #1a0a10; font-weight: 600; }
+  button.ghost { background: transparent; }
+
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; transition: background 0.15s; }
+  .dot.recording { background: var(--danger); animation: pulse 1s infinite; }
+  .dot.ok { background: var(--accent-2); }
+  .dot.warn { background: var(--warn); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .status-text { font-size: 13px; color: var(--text-dim); }
+  .timer { font-family: var(--mono); font-size: 13px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+  textarea {
+    width: 100%;
+    min-height: 160px;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    font-family: var(--sans);
+    font-size: 14.5px;
+    line-height: 1.55;
+    resize: vertical;
+    outline: none;
+  }
+  textarea:focus { border-color: var(--accent); }
+  textarea[readonly] { background: var(--panel); }
+
+  label.field-label {
+    display: block;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+  }
+
+  .progress {
+    width: 100%;
+    height: 4px;
+    background: var(--panel-2);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 8px;
+    display: none;
+  }
+  .progress.visible { display: block; }
+  .progress .bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s ease; }
+  .progress.indeterminate .bar { width: 30%; animation: slide 1.2s linear infinite; }
+  @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+
+  .toast {
+    display: inline-block;
+    font-size: 13px;
+    color: var(--accent-2);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .toast.show { opacity: 1; }
+
+  details.system-prompt { margin-bottom: 10px; }
+  details.system-prompt summary {
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 13px;
+    user-select: none;
+    padding: 2px 0;
+  }
+  details.system-prompt summary:hover { color: var(--text); }
+  details.system-prompt textarea { min-height: 100px; margin-top: 8px; font-size: 13px; font-family: var(--mono); }
+
+  .footer-note { font-size: 12px; color: var(--text-faint); margin-top: 22px; line-height: 1.6; }
+  .footer-note code { font-family: var(--mono); background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  .footer-note a { color: var(--accent); }
+
+  .word-count { font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+  .inline-err {
+    background: rgba(247, 118, 142, 0.08);
+    border: 1px solid rgba(247, 118, 142, 0.35);
+    color: var(--danger);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin-top: 10px;
+    display: none;
+  }
+  .inline-err.visible { display: block; }
+
+  .level {
+    width: 100%;
+    height: 6px;
+    background: var(--panel-2);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 10px;
+    display: none;
+  }
+  .level.visible { display: block; }
+  .level-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+    border-radius: 999px;
+    transition: width 0.06s linear;
+  }
+
+  textarea.live {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, var(--panel-2));
+  }
+  .interim { color: var(--text-faint); font-style: italic; }
+
+  .template-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .template-row select {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-family: inherit;
+    font-size: 14px;
+    min-width: 220px;
+  }
+  .template-row select:focus { outline: none; border-color: var(--accent); }
+
+  dialog.tpl-dialog {
+    width: min(960px, 94vw);
+    max-height: 88vh;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel);
+    color: var(--text);
+    padding: 0;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  dialog.tpl-dialog::backdrop {
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(2px);
+  }
+  .tpl-dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tpl-dialog-body {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 460px;
+    max-height: calc(88vh - 60px);
+  }
+  .tpl-list-pane {
+    border-right: 1px solid var(--border);
+    padding: 14px;
+    background: var(--panel-2);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  #tpl-list { list-style: none; padding: 0; margin: 0 0 12px; flex: 1; }
+  #tpl-list li {
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+    user-select: none;
+  }
+  #tpl-list li:hover:not(.active) { background: var(--border); color: var(--text); }
+  #tpl-list li.active {
+    background: var(--accent);
+    color: #0a1226;
+    font-weight: 600;
+  }
+  .tpl-list-actions { display: flex; flex-direction: column; gap: 6px; }
+  .tpl-list-actions button { font-size: 13px; }
+
+  .tpl-edit {
+    padding: 16px 18px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .tpl-edit label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+  }
+  .tpl-edit label code {
+    text-transform: none;
+    letter-spacing: 0;
+    font-family: var(--mono);
+    background: var(--panel-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--text-dim);
+  }
+  .tpl-edit input[type=text],
+  .tpl-edit textarea {
+    display: block;
+    width: 100%;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 10px;
+    margin-top: 6px;
+    font-family: var(--sans);
+    font-size: 14px;
+    outline: none;
+  }
+  .tpl-edit input[type=text]:focus,
+  .tpl-edit textarea:focus { border-color: var(--accent); }
+  .tpl-edit textarea {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    min-height: 110px;
+    resize: vertical;
+  }
+  .tpl-edit textarea#tpl-before,
+  .tpl-edit textarea#tpl-after { min-height: 150px; }
+  .tpl-edit-actions { margin-top: 6px; display: flex; justify-content: flex-end; }
+
+  @media (max-width: 640px) {
+    .tpl-dialog-body { grid-template-columns: 1fr; }
+    .tpl-list-pane { border-right: none; border-bottom: 1px solid var(--border); max-height: 30vh; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Voice → Claude Code</h1>
+  <p class="sub">Local Whisper transcription, optional local LLM rewrite. Audio never leaves your device. Models download once from Hugging Face, then run fully offline.</p>
+
+  <!-- Recording controls -->
+  <section class="panel" aria-label="Recording controls">
+    <div class="row">
+      <div id="rec-dot" class="dot" aria-hidden="true"></div>
+      <span id="rec-status" class="status-text">Ready</span>
+      <span id="rec-timer" class="timer spacer">0:00</span>
+    </div>
+    <div class="row">
+      <button id="btn-record" class="primary grow" type="button">Start recording</button>
+      <button id="btn-clear" class="ghost" type="button">Clear</button>
+    </div>
+    <div id="level-meter" class="level"><div class="level-fill"></div></div>
+    <div id="whisper-progress" class="progress"><div class="bar"></div></div>
+    <div id="rec-error" class="inline-err" role="alert"></div>
+  </section>
+
+  <!-- Raw transcript -->
+  <section class="panel" aria-label="Raw transcript">
+    <label class="field-label" for="raw">Raw transcript <span class="word-count" id="raw-count">· 0 words</span></label>
+    <textarea id="raw" placeholder="Transcript will appear here after recording stops. You can edit it before refining."></textarea>
+    <div class="row" style="margin-top: 10px;">
+      <button id="btn-copy-raw" type="button">Copy raw</button>
+      <button id="btn-refine" class="primary" type="button" disabled>Refine prompt →</button>
+      <span id="raw-toast" class="toast">Copied</span>
+    </div>
+  </section>
+
+  <!-- Refined prompt -->
+  <section class="panel" aria-label="Refined prompt">
+    <div class="template-row">
+      <label class="field-label" for="template-select" style="margin: 0;">Template</label>
+      <select id="template-select" aria-label="Active template"></select>
+      <button id="btn-manage-templates" type="button" class="ghost">Manage templates</button>
+    </div>
+    <label class="field-label" for="refined">Refined prompt <span class="word-count" id="refined-count">· 0 words</span></label>
+    <textarea id="refined" placeholder="Click 'Refine prompt' above. The local LLM downloads once (~600MB) on first use, then runs offline."></textarea>
+    <div id="llm-progress" class="progress"><div class="bar"></div></div>
+    <div class="row" style="margin-top: 10px;">
+      <button id="btn-copy-refined" type="button">Copy refined</button>
+      <button id="btn-regen" type="button" disabled>Regenerate</button>
+      <span id="refined-toast" class="toast">Copied</span>
+      <span id="llm-status" class="status-text spacer"></span>
+    </div>
+    <div id="llm-error" class="inline-err" role="alert"></div>
+  </section>
+
+  <!-- Template manager modal -->
+  <dialog id="template-dialog" class="tpl-dialog" aria-label="Manage prompt templates">
+    <div class="tpl-dialog-header">
+      <strong>Prompt templates</strong>
+      <button id="tpl-dialog-close" type="button" class="ghost" aria-label="Close">Done</button>
+    </div>
+    <div class="tpl-dialog-body">
+      <aside class="tpl-list-pane">
+        <ul id="tpl-list" role="listbox" aria-label="Templates"></ul>
+        <div class="tpl-list-actions">
+          <button type="button" id="tpl-new">+ New template</button>
+          <button type="button" id="tpl-restore" class="ghost">Restore defaults</button>
+        </div>
+      </aside>
+      <section class="tpl-edit">
+        <label>Name<input type="text" id="tpl-name" autocomplete="off"></label>
+        <label>System prompt (high-level role for the rewriter)<textarea id="tpl-system"></textarea></label>
+        <label>Before transcript (rules, guards, definitions — sits ABOVE the <code>---</code> markers)<textarea id="tpl-before"></textarea></label>
+        <label>After transcript (output format — sits BELOW the <code>---</code> markers)<textarea id="tpl-after"></textarea></label>
+        <div class="tpl-edit-actions">
+          <button type="button" id="tpl-delete" class="danger">Delete this template</button>
+        </div>
+      </section>
+    </div>
+  </dialog>
+
+  <p class="footer-note">
+    Models are fetched from Hugging Face's CDN once and cached in browser storage (IndexedDB). No telemetry, no analytics, no audio uploads.
+    Whisper: <code>onnx-community/whisper-large-v3-turbo</code> on WebGPU (~800 MB, q4 quantized) — falls back to <code>Xenova/whisper-base.en</code> if WebGPU is unavailable. Rewriter: <code>Llama-3.2-1B-Instruct</code> via WebLLM (~700 MB, requires WebGPU).
+    Tested in Chrome &amp; Edge on macOS. Open via <code>file://</code> by double-clicking, or serve locally with <code>python3 -m http.server</code>.
+  </p>
+</main>
+
+<script type="module">
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2";
+import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.79";
+
+env.allowLocalModels = false;
+
+const TPL_STORAGE_KEY = "vctcb_templates_v1";
+const TPL_ACTIVE_KEY = "vctcb_active_template_v1";
+const TRANSCRIPT_MARKER = "---";
+
+const DEFAULT_TEMPLATES = [
+  {
+    id: "coding-task",
+    name: "Coding Task",
+    system: "You are an editor that rewrites a developer's dictated voice notes into a clear, structured prompt for an AI coding assistant (Claude Code). You do not invent facts.",
+    before: `# Task
+Rewrite my dictated voice note as a structured prompt for Claude Code.
+
+# Absolute rules
+- Preserve every concrete detail I mention (file names, library names, error messages, line numbers, technical terms). Do not paraphrase them away.
+- Do NOT invent facts I did not say. If something is ambiguous, surface it under "Concerns" instead of guessing.
+- Fix grammar, run-on sentences, and filler ("um", "like", "you know"). Keep my voice and intent.
+- Output ONLY the structured prompt described under "Required output format". No preamble, no "Here is the rewrite", no outer markdown code fence.
+
+# My voice note (verbatim, between the markers below):`,
+    after: `# Required output format
+
+## Contents
+Goal: <one sentence describing what I want done>
+Context: <relevant background: what the code does, where it lives, tech stack>
+Constraints: <musts, must-nots, performance/compat/style requirements>
+What I've tried: <only if mentioned in the note>
+
+## Concerns
+- <ambiguity the assistant should clarify before acting>
+- <risk the assistant might misinterpret a detail>
+- <missing information that would block clean execution>
+
+If a section has nothing to populate, write "(none mentioned)" — do not delete the heading.`
+  },
+  {
+    id: "bug-investigation",
+    name: "Bug Investigation",
+    system: "You rewrite a developer's dictated bug report into a structured investigation brief for an AI coding assistant. You do not invent facts.",
+    before: `# Task
+Rewrite my dictated bug report as a structured investigation brief.
+
+# Absolute rules
+- Preserve every concrete detail (error messages, file paths, stack frames, reproduction steps, versions, environment).
+- Do NOT invent reproduction steps, error messages, or behavior I didn't describe.
+- If reproduction is unclear, request it under "Concerns" — do not fabricate.
+- Output ONLY the structured brief described under "Required output format". No preamble.
+
+# My voice note (verbatim, between the markers below):`,
+    after: `# Required output format
+
+## Contents
+Symptom: <what's wrong, in one sentence>
+Reproduction: <numbered steps if I gave them, else "(not specified)">
+Expected: <what should happen>
+Actual: <what does happen>
+Suspected area: <files/modules I pointed at, if any>
+Already tried: <only if mentioned>
+
+## Concerns
+- <what's missing to reproduce reliably>
+- <ambiguity the assistant should clarify before touching code>
+- <risk areas a fix here could regress>
+
+If a section has nothing to populate, write "(none mentioned)".`
+  },
+  {
+    id: "code-review",
+    name: "Code Review Brief",
+    system: "You rewrite a developer's dictated review notes into a focused brief telling an AI coding assistant what to scrutinize and what to ignore.",
+    before: `# Task
+Rewrite my dictated review notes as a focused review brief.
+
+# Absolute rules
+- Preserve every concrete detail (PR/branch names, file paths, specific concerns I raised).
+- Do NOT invent review criteria I didn't mention.
+- Distinguish "in scope" from "out of scope" only from what I said; if unclear, flag it under "Concerns".
+- Output ONLY the structured brief described under "Required output format". No preamble.
+
+# My voice note (verbatim, between the markers below):`,
+    after: `# Required output format
+
+## Contents
+Subject: <what's being reviewed: PR / branch / file / area>
+Review goals: <what the review should accomplish>
+Focus on: <specific things to scrutinize>
+Out of scope: <what NOT to comment on>
+
+## Concerns
+- <ambiguity about scope or priorities>
+- <missing context the reviewer would need>
+
+If a section has nothing to populate, write "(none mentioned)".`
+  },
+  {
+    id: "design-question",
+    name: "Design / Architecture",
+    system: "You rewrite a developer's dictated design question into a structured prompt that invites focused analysis rather than premature implementation.",
+    before: `# Task
+Rewrite my dictated design question as a structured discussion prompt.
+
+# Absolute rules
+- Preserve every concrete detail (technologies, constraints, scale, options I'm weighing).
+- Do NOT invent options or constraints I did not mention.
+- The output should invite analysis, not jump to a single recommendation.
+- Output ONLY the structured prompt described under "Required output format". No preamble.
+
+# My voice note (verbatim, between the markers below):`,
+    after: `# Required output format
+
+## Contents
+Question: <one sentence stating what I'm trying to decide>
+Background: <relevant context about the system and where it lives>
+Options under consideration: <if I named them; else "(not specified)">
+Constraints: <hard requirements>
+Decision criteria: <what makes one option better than another for me>
+
+## Concerns
+- <ambiguity in the question itself>
+- <missing context that would change the answer>
+- <an assumption the assistant should challenge>
+
+If a section has nothing to populate, write "(none mentioned)".`
+  },
+];
+
+function loadTemplates() {
+  try {
+    const raw = localStorage.getItem(TPL_STORAGE_KEY);
+    if (!raw) return structuredClone(DEFAULT_TEMPLATES);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return structuredClone(DEFAULT_TEMPLATES);
+    return parsed;
+  } catch {
+    return structuredClone(DEFAULT_TEMPLATES);
+  }
+}
+function saveTemplates(list) {
+  try { localStorage.setItem(TPL_STORAGE_KEY, JSON.stringify(list)); } catch {}
+}
+function loadActiveTemplateId(list) {
+  const stored = localStorage.getItem(TPL_ACTIVE_KEY);
+  if (stored && list.some(t => t.id === stored)) return stored;
+  return list[0].id;
+}
+function saveActiveTemplateId(id) {
+  try { localStorage.setItem(TPL_ACTIVE_KEY, id); } catch {}
+}
+function makeTemplateId(name) {
+  const base = (name || "template").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "template";
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+// ----- State -----
+const state = {
+  recording: false,
+  mediaRecorder: null,
+  chunks: [],
+  stream: null,
+  timerId: null,
+  startedAt: 0,
+  transcriber: null,
+  whisperLoading: false,
+  llmEngine: null,
+  llmLoading: false,
+  // Live preview via Web Speech API (instant but rough; Whisper replaces it on stop)
+  speech: null,
+  liveFinal: "",
+  liveInterim: "",
+  rawBeforeRecording: "",
+  // Audio level meter
+  audioCtx: null,
+  analyser: null,
+  meterRaf: 0,
+  // Templates
+  templates: [],
+  activeTemplateId: null,
+  editingTemplateId: null,
+  // Refinement state
+  refining: false,
+  refineAborted: false,
+};
+
+state.templates = loadTemplates();
+state.activeTemplateId = loadActiveTemplateId(state.templates);
+
+// ----- DOM -----
+const $ = (id) => document.getElementById(id);
+const dot = $("rec-dot");
+const recStatus = $("rec-status");
+const recTimer = $("rec-timer");
+const btnRecord = $("btn-record");
+const btnClear = $("btn-clear");
+const recError = $("rec-error");
+const whisperProgress = $("whisper-progress");
+const whisperBar = whisperProgress.querySelector(".bar");
+const levelMeter = $("level-meter");
+const levelFill = levelMeter.querySelector(".level-fill");
+const raw = $("raw");
+const rawCount = $("raw-count");
+const btnCopyRaw = $("btn-copy-raw");
+const btnRefine = $("btn-refine");
+const rawToast = $("raw-toast");
+const refined = $("refined");
+const refinedCount = $("refined-count");
+const btnCopyRefined = $("btn-copy-refined");
+const btnRegen = $("btn-regen");
+const refinedToast = $("refined-toast");
+const llmStatus = $("llm-status");
+const llmProgress = $("llm-progress");
+const llmBar = llmProgress.querySelector(".bar");
+const llmError = $("llm-error");
+const tplSelect = $("template-select");
+const btnManageTemplates = $("btn-manage-templates");
+const tplDialog = $("template-dialog");
+const tplList = $("tpl-list");
+const tplNew = $("tpl-new");
+const tplRestore = $("tpl-restore");
+const tplDelete = $("tpl-delete");
+const tplName = $("tpl-name");
+const tplSystem = $("tpl-system");
+const tplBefore = $("tpl-before");
+const tplAfter = $("tpl-after");
+const tplDialogClose = $("tpl-dialog-close");
+
+// ----- Utilities -----
+const wordCount = (s) => { const t = (s || "").trim(); return t ? t.split(/\s+/).length : 0; };
+const setCount = (el, s) => { const n = wordCount(s); el.textContent = `· ${n} word${n === 1 ? "" : "s"}`; };
+const flashToast = (el) => { el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 1400); };
+
+function showError(el, msg) {
+  el.textContent = msg;
+  el.classList.add("visible");
+}
+function clearError(el) {
+  el.textContent = "";
+  el.classList.remove("visible");
+}
+
+function setProgressBar(progressEl, barEl, value) {
+  if (value == null) {
+    progressEl.classList.add("visible", "indeterminate");
+    barEl.style.width = "30%";
+  } else {
+    progressEl.classList.add("visible");
+    progressEl.classList.remove("indeterminate");
+    barEl.style.width = `${Math.round(value * 100)}%`;
+  }
+}
+function hideProgressBar(progressEl) {
+  progressEl.classList.remove("visible", "indeterminate");
+}
+
+raw.addEventListener("input", () => {
+  setCount(rawCount, raw.value);
+  btnRefine.disabled = !raw.value.trim();
+});
+refined.addEventListener("input", () => setCount(refinedCount, refined.value));
+
+// ----- Timer -----
+function startTimer() {
+  state.startedAt = Date.now();
+  recTimer.textContent = "0:00";
+  state.timerId = setInterval(() => {
+    const s = Math.floor((Date.now() - state.startedAt) / 1000);
+    recTimer.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }, 250);
+}
+function stopTimer() { clearInterval(state.timerId); state.timerId = null; }
+
+// ----- Whisper init -----
+const WHISPER_MODEL_WEBGPU = "onnx-community/whisper-large-v3-turbo";
+const WHISPER_MODEL_WASM = "Xenova/whisper-base.en";
+
+async function ensureWhisper() {
+  if (state.transcriber) return state.transcriber;
+  if (state.whisperLoading) {
+    while (state.whisperLoading) await new Promise(r => setTimeout(r, 100));
+    return state.transcriber;
+  }
+  state.whisperLoading = true;
+  try {
+    const hasWebGPU = "gpu" in navigator;
+    const modelId = hasWebGPU ? WHISPER_MODEL_WEBGPU : WHISPER_MODEL_WASM;
+    state.whisperIsLarge = hasWebGPU;
+    recStatus.textContent = hasWebGPU
+      ? "Loading Whisper large-v3-turbo (first run only, ~800 MB)…"
+      : "Loading Whisper base.en (no WebGPU — using fallback)…";
+    dot.classList.add("warn");
+    setProgressBar(whisperProgress, whisperBar, 0);
+
+    const options = hasWebGPU
+      ? {
+          device: "webgpu",
+          dtype: {
+            encoder_model: "fp16",
+            decoder_model_merged: "q4",
+          },
+        }
+      : {
+          device: "wasm",
+          dtype: "q8",
+        };
+
+    state.transcriber = await pipeline(
+      "automatic-speech-recognition",
+      modelId,
+      {
+        ...options,
+        progress_callback: (p) => {
+          if (p.status === "progress" && typeof p.progress === "number") {
+            setProgressBar(whisperProgress, whisperBar, p.progress / 100);
+          } else if (p.status === "ready") {
+            setProgressBar(whisperProgress, whisperBar, 1);
+          }
+        },
+      }
+    );
+  } finally {
+    state.whisperLoading = false;
+    hideProgressBar(whisperProgress);
+    dot.classList.remove("warn");
+  }
+  return state.transcriber;
+}
+
+// ----- Audio capture -----
+async function startRecording() {
+  clearError(recError);
+  try {
+    state.stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      }
+    });
+  } catch (e) {
+    showError(recError, `Microphone access denied or unavailable: ${e.message}`);
+    return;
+  }
+
+  state.chunks = [];
+  const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", ""];
+  const mime = mimeCandidates.find(m => !m || MediaRecorder.isTypeSupported(m)) || "";
+  state.mediaRecorder = mime ? new MediaRecorder(state.stream, { mimeType: mime }) : new MediaRecorder(state.stream);
+
+  state.mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) state.chunks.push(e.data); };
+  state.mediaRecorder.onstop = handleRecordingStopped;
+
+  state.mediaRecorder.start(1000);
+  state.recording = true;
+  dot.classList.add("recording");
+  recStatus.textContent = "Listening — live preview, Whisper will replace on stop";
+  btnRecord.textContent = "Stop & transcribe";
+  btnRecord.classList.remove("primary");
+  btnRecord.classList.add("danger");
+  raw.classList.add("live");
+  startTimer();
+
+  // Snapshot what was already in the box so we append rather than overwrite
+  state.rawBeforeRecording = raw.value;
+  state.liveFinal = "";
+  state.liveInterim = "";
+
+  startLiveSpeechPreview();
+  startLevelMeter(state.stream);
+
+  // Kick off Whisper load in background while user speaks
+  ensureWhisper().catch(err => {
+    console.error(err);
+    showError(recError, `Could not load Whisper model: ${err.message}`);
+  });
+}
+
+function startLiveSpeechPreview() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return; // Firefox/Safari: skip silently. User just sees the level meter.
+  try {
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    rec.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) state.liveFinal += t;
+        else interim += t;
+      }
+      state.liveInterim = interim;
+      renderLivePreview();
+    };
+    rec.onerror = () => { /* non-fatal — preview is best-effort */ };
+    rec.onend = () => {
+      // Auto-restart if we're still recording (Chrome sometimes ends mid-stream)
+      if (state.recording && state.speech === rec) {
+        try { rec.start(); } catch { /* already started */ }
+      }
+    };
+    state.speech = rec;
+    rec.start();
+  } catch (e) {
+    state.speech = null;
+  }
+}
+
+function renderLivePreview() {
+  const prefix = state.rawBeforeRecording
+    ? (state.rawBeforeRecording.endsWith(" ") ? state.rawBeforeRecording : state.rawBeforeRecording + " ")
+    : "";
+  raw.value = prefix + state.liveFinal + state.liveInterim;
+  setCount(rawCount, raw.value);
+}
+
+function startLevelMeter(stream) {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    state.audioCtx = new AudioCtx();
+    const source = state.audioCtx.createMediaStreamSource(stream);
+    state.analyser = state.audioCtx.createAnalyser();
+    state.analyser.fftSize = 512;
+    state.analyser.smoothingTimeConstant = 0.6;
+    source.connect(state.analyser);
+    const buf = new Uint8Array(state.analyser.frequencyBinCount);
+    levelMeter.classList.add("visible");
+    const tick = () => {
+      if (!state.recording) return;
+      state.analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / buf.length);
+      const pct = Math.min(100, Math.max(2, rms * 240));
+      levelFill.style.width = pct + "%";
+      state.meterRaf = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch (e) {
+    // Non-fatal
+  }
+}
+
+function stopLevelMeter() {
+  cancelAnimationFrame(state.meterRaf);
+  state.meterRaf = 0;
+  if (state.audioCtx) { try { state.audioCtx.close(); } catch {} state.audioCtx = null; state.analyser = null; }
+  levelMeter.classList.remove("visible");
+  levelFill.style.width = "0%";
+}
+
+function stopLiveSpeechPreview() {
+  if (state.speech) {
+    const rec = state.speech;
+    state.speech = null;
+    try { rec.stop(); } catch {}
+  }
+}
+
+function stopRecording() {
+  if (!state.mediaRecorder || state.mediaRecorder.state === "inactive") return;
+  state.recording = false;
+  stopLiveSpeechPreview();
+  stopLevelMeter();
+  state.mediaRecorder.stop();
+  state.stream.getTracks().forEach(t => t.stop());
+  state.stream = null;
+  dot.classList.remove("recording");
+  btnRecord.textContent = "Transcribing…";
+  btnRecord.disabled = true;
+  recStatus.textContent = "You stopped. Running Whisper for the accurate transcript…";
+  raw.classList.remove("live");
+  stopTimer();
+}
+
+async function handleRecordingStopped() {
+  const blob = new Blob(state.chunks, { type: state.mediaRecorder.mimeType || "audio/webm" });
+  state.chunks = [];
+
+  try {
+    setProgressBar(whisperProgress, whisperBar, null); // indeterminate
+    const audio = await blobTo16kMonoFloat32(blob);
+    const transcriber = await ensureWhisper();
+    const isMultilingual = !!state.whisperIsLarge;
+    const out = await transcriber(audio, {
+      chunk_length_s: 30,
+      stride_length_s: 5,
+      return_timestamps: false,
+      ...(isMultilingual ? { language: "en", task: "transcribe" } : {}),
+    });
+    const text = (out.text || "").trim();
+
+    // Replace the Web Speech API's rough live preview with Whisper's accurate transcript,
+    // appended to whatever was in the box before this recording started.
+    const prefix = state.rawBeforeRecording
+      ? (state.rawBeforeRecording.endsWith(" ") ? state.rawBeforeRecording : state.rawBeforeRecording + " ")
+      : "";
+    raw.value = (prefix + text).trim();
+    state.rawBeforeRecording = "";
+    state.liveFinal = "";
+    state.liveInterim = "";
+    setCount(rawCount, raw.value);
+    btnRefine.disabled = !raw.value.trim();
+    recStatus.textContent = "Done. Edit if needed, then refine.";
+    dot.classList.add("ok");
+    setTimeout(() => dot.classList.remove("ok"), 1500);
+  } catch (e) {
+    console.error(e);
+    showError(recError, `Transcription failed: ${e.message}`);
+    recStatus.textContent = "Error";
+  } finally {
+    hideProgressBar(whisperProgress);
+    btnRecord.textContent = "Start recording";
+    btnRecord.classList.add("primary");
+    btnRecord.classList.remove("danger");
+    btnRecord.disabled = false;
+  }
+}
+
+async function blobTo16kMonoFloat32(blob) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const tmpCtx = new AudioCtx();
+  let decoded;
+  try {
+    decoded = await tmpCtx.decodeAudioData(arrayBuffer.slice(0));
+  } finally {
+    tmpCtx.close();
+  }
+
+  const targetRate = 16000;
+  const targetLength = Math.ceil(decoded.duration * targetRate);
+  const offline = new OfflineAudioContext(1, Math.max(targetLength, 1), targetRate);
+  const source = offline.createBufferSource();
+
+  // If multichannel, mix to mono manually since OfflineAudioContext is mono here
+  if (decoded.numberOfChannels > 1) {
+    const monoBuf = offline.createBuffer(1, decoded.length, decoded.sampleRate);
+    const out = monoBuf.getChannelData(0);
+    for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+      const data = decoded.getChannelData(ch);
+      for (let i = 0; i < data.length; i++) out[i] += data[i] / decoded.numberOfChannels;
+    }
+    source.buffer = monoBuf;
+  } else {
+    source.buffer = decoded;
+  }
+
+  source.connect(offline.destination);
+  source.start();
+  const rendered = await offline.startRendering();
+  return rendered.getChannelData(0);
+}
+
+// ----- WebLLM (rewriter) -----
+async function ensureLLM() {
+  if (state.llmEngine) return state.llmEngine;
+  if (state.llmLoading) {
+    while (state.llmLoading) await new Promise(r => setTimeout(r, 150));
+    return state.llmEngine;
+  }
+  if (!("gpu" in navigator)) {
+    throw new Error("WebGPU not available. The rewriter requires WebGPU (Chrome/Edge recent versions). Transcription still works without it.");
+  }
+  state.llmLoading = true;
+  clearError(llmError);
+  try {
+    llmStatus.textContent = "Loading rewriter (first run only)…";
+    setProgressBar(llmProgress, llmBar, 0);
+
+    const modelId = "Llama-3.2-1B-Instruct-q4f32_1-MLC";
+    state.llmEngine = await webllm.CreateMLCEngine(modelId, {
+      initProgressCallback: (report) => {
+        if (typeof report.progress === "number") {
+          setProgressBar(llmProgress, llmBar, report.progress);
+        }
+        if (report.text) llmStatus.textContent = report.text.length > 80 ? report.text.slice(0, 80) + "…" : report.text;
+      },
+    });
+    llmStatus.textContent = "Rewriter ready";
+  } finally {
+    state.llmLoading = false;
+    hideProgressBar(llmProgress);
+  }
+  return state.llmEngine;
+}
+
+function getActiveTemplate() {
+  return state.templates.find(t => t.id === state.activeTemplateId) || state.templates[0];
+}
+function buildUserMessage(tpl, transcript) {
+  const before = (tpl.before || "").trim();
+  const after = (tpl.after || "").trim();
+  const body = `${TRANSCRIPT_MARKER}\n${transcript.trim()}\n${TRANSCRIPT_MARKER}`;
+  return [before, body, after].filter(Boolean).join("\n\n");
+}
+
+function setRefineButtonToStop() {
+  btnRefine.textContent = "Stop generating";
+  btnRefine.classList.remove("primary");
+  btnRefine.classList.add("danger");
+  btnRefine.disabled = false;
+}
+function setRefineButtonToRefine() {
+  btnRefine.textContent = "Refine prompt →";
+  btnRefine.classList.add("primary");
+  btnRefine.classList.remove("danger");
+  btnRefine.disabled = !raw.value.trim();
+}
+
+function stopRefine() {
+  state.refineAborted = true;
+  if (state.llmEngine && typeof state.llmEngine.interruptGenerate === "function") {
+    try { state.llmEngine.interruptGenerate(); } catch {}
+  }
+}
+
+async function refinePrompt() {
+  if (state.refining) return; // guarded; the button click handler routes to stop
+  const input = raw.value.trim();
+  if (!input) return;
+  const tpl = getActiveTemplate();
+  if (!tpl) { showError(llmError, "No template selected."); return; }
+  clearError(llmError);
+
+  state.refining = true;
+  state.refineAborted = false;
+  setRefineButtonToStop();
+  btnRegen.disabled = true;
+  refined.value = "";
+  setCount(refinedCount, "");
+
+  try {
+    const engine = await ensureLLM();
+    if (state.refineAborted) {
+      llmStatus.textContent = "Stopped";
+      return;
+    }
+    llmStatus.textContent = `Refining via "${tpl.name}"…`;
+    setProgressBar(llmProgress, llmBar, null); // indeterminate
+
+    const stream = await engine.chat.completions.create({
+      messages: [
+        { role: "system", content: (tpl.system || "").trim() || "You rewrite voice notes into structured prompts." },
+        { role: "user", content: buildUserMessage(tpl, input) },
+      ],
+      temperature: 0.3,
+      top_p: 0.9,
+      max_tokens: 1024,
+      stream: true,
+      frequency_penalty: 0.4,
+      presence_penalty: 0.4,
+    });
+
+    let buf = "";
+    for await (const chunk of stream) {
+      if (state.refineAborted) break;
+      const delta = chunk.choices?.[0]?.delta?.content ?? "";
+      if (delta) {
+        buf += delta;
+        refined.value = buf;
+        setCount(refinedCount, buf);
+      }
+    }
+    llmStatus.textContent = state.refineAborted ? "Stopped — partial output kept" : "Done";
+  } catch (e) {
+    if (state.refineAborted) {
+      llmStatus.textContent = "Stopped — partial output kept";
+    } else {
+      console.error(e);
+      showError(llmError, e.message || String(e));
+      llmStatus.textContent = "Error";
+    }
+  } finally {
+    hideProgressBar(llmProgress);
+    state.refining = false;
+    state.refineAborted = false;
+    setRefineButtonToRefine();
+    btnRegen.disabled = !refined.value.trim();
+  }
+}
+
+// ----- Buttons -----
+btnRecord.addEventListener("click", () => {
+  if (state.recording) stopRecording();
+  else startRecording();
+});
+btnClear.addEventListener("click", () => {
+  if (state.recording) stopRecording();
+  if (state.refining) stopRefine();
+  raw.value = "";
+  refined.value = "";
+  setCount(rawCount, "");
+  setCount(refinedCount, "");
+  btnRefine.disabled = true;
+  btnRegen.disabled = true;
+  clearError(recError);
+  clearError(llmError);
+  recStatus.textContent = "Ready";
+  recTimer.textContent = "0:00";
+});
+btnCopyRaw.addEventListener("click", async () => {
+  if (!raw.value) return;
+  try { await navigator.clipboard.writeText(raw.value); flashToast(rawToast); }
+  catch (e) { raw.select(); document.execCommand("copy"); flashToast(rawToast); }
+});
+btnCopyRefined.addEventListener("click", async () => {
+  if (!refined.value) return;
+  try { await navigator.clipboard.writeText(refined.value); flashToast(refinedToast); }
+  catch (e) { refined.select(); document.execCommand("copy"); flashToast(refinedToast); }
+});
+btnRefine.addEventListener("click", () => {
+  if (state.refining) stopRefine();
+  else refinePrompt();
+});
+btnRegen.addEventListener("click", () => {
+  if (state.refining) return;
+  refinePrompt();
+});
+
+// ----- Templates UI -----
+function renderTemplateSelect() {
+  tplSelect.innerHTML = "";
+  for (const t of state.templates) {
+    const opt = document.createElement("option");
+    opt.value = t.id;
+    opt.textContent = t.name;
+    if (t.id === state.activeTemplateId) opt.selected = true;
+    tplSelect.appendChild(opt);
+  }
+}
+function renderTemplateList() {
+  tplList.innerHTML = "";
+  for (const t of state.templates) {
+    const li = document.createElement("li");
+    li.textContent = t.name || "(untitled)";
+    li.dataset.id = t.id;
+    li.setAttribute("role", "option");
+    if (t.id === state.editingTemplateId) li.classList.add("active");
+    li.addEventListener("click", () => selectEditingTemplate(t.id));
+    tplList.appendChild(li);
+  }
+}
+function loadEditorFromTemplate(t) {
+  tplName.value = t.name || "";
+  tplSystem.value = t.system || "";
+  tplBefore.value = t.before || "";
+  tplAfter.value = t.after || "";
+  tplDelete.disabled = state.templates.length <= 1;
+}
+function selectEditingTemplate(id) {
+  const t = state.templates.find(x => x.id === id);
+  if (!t) return;
+  state.editingTemplateId = id;
+  renderTemplateList();
+  loadEditorFromTemplate(t);
+}
+function commitEditorToTemplate() {
+  const t = state.templates.find(x => x.id === state.editingTemplateId);
+  if (!t) return;
+  t.name = tplName.value.trim() || "(untitled)";
+  t.system = tplSystem.value;
+  t.before = tplBefore.value;
+  t.after = tplAfter.value;
+  saveTemplates(state.templates);
+  renderTemplateList();
+  renderTemplateSelect();
+}
+
+tplSelect.addEventListener("change", () => {
+  state.activeTemplateId = tplSelect.value;
+  saveActiveTemplateId(state.activeTemplateId);
+});
+
+btnManageTemplates.addEventListener("click", () => {
+  state.editingTemplateId = state.activeTemplateId;
+  renderTemplateList();
+  const t = getActiveTemplate();
+  if (t) loadEditorFromTemplate(t);
+  if (typeof tplDialog.showModal === "function") tplDialog.showModal();
+  else tplDialog.setAttribute("open", "");
+});
+
+tplDialogClose.addEventListener("click", () => {
+  commitEditorToTemplate();
+  // Keep activeTemplateId if it still exists; otherwise fall back
+  if (!state.templates.some(t => t.id === state.activeTemplateId)) {
+    state.activeTemplateId = state.templates[0].id;
+    saveActiveTemplateId(state.activeTemplateId);
+  }
+  renderTemplateSelect();
+  if (tplDialog.open) tplDialog.close();
+});
+
+for (const el of [tplName, tplSystem, tplBefore, tplAfter]) {
+  el.addEventListener("input", commitEditorToTemplate);
+}
+
+tplNew.addEventListener("click", () => {
+  commitEditorToTemplate();
+  const newTpl = {
+    id: makeTemplateId("custom"),
+    name: "New template",
+    system: "You rewrite voice notes into clear, structured prompts. Do not invent facts.",
+    before: `# Task\nRewrite my voice note as a structured prompt.\n\n# Rules\n- Preserve every concrete detail I mentioned.\n- Do not invent facts.\n- Output ONLY the structured prompt below.\n\n# My voice note (verbatim, between the markers below):`,
+    after: `# Required output format\n\n## Contents\n<your sections here>\n\n## Concerns\n- <ambiguity to clarify>\n\nIf a section has nothing to populate, write "(none mentioned)".`,
+  };
+  state.templates.push(newTpl);
+  saveTemplates(state.templates);
+  selectEditingTemplate(newTpl.id);
+  renderTemplateSelect();
+  tplName.focus();
+  tplName.select();
+});
+
+tplDelete.addEventListener("click", () => {
+  if (state.templates.length <= 1) return;
+  const idx = state.templates.findIndex(t => t.id === state.editingTemplateId);
+  if (idx < 0) return;
+  const removed = state.templates.splice(idx, 1)[0];
+  if (state.activeTemplateId === removed.id) {
+    state.activeTemplateId = state.templates[0].id;
+    saveActiveTemplateId(state.activeTemplateId);
+  }
+  saveTemplates(state.templates);
+  selectEditingTemplate(state.templates[Math.max(0, idx - 1)].id);
+  renderTemplateSelect();
+});
+
+tplRestore.addEventListener("click", () => {
+  if (!confirm("Restore the built-in templates? This re-adds any missing defaults and resets edited defaults to their original content. Your custom templates will be kept.")) return;
+  const byId = new Map(state.templates.map(t => [t.id, t]));
+  for (const def of DEFAULT_TEMPLATES) {
+    byId.set(def.id, structuredClone(def));
+  }
+  state.templates = Array.from(byId.values());
+  // Put defaults first in their canonical order, then customs
+  state.templates.sort((a, b) => {
+    const ai = DEFAULT_TEMPLATES.findIndex(d => d.id === a.id);
+    const bi = DEFAULT_TEMPLATES.findIndex(d => d.id === b.id);
+    if (ai === -1 && bi === -1) return 0;
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+  saveTemplates(state.templates);
+  selectEditingTemplate(state.editingTemplateId && state.templates.some(t => t.id === state.editingTemplateId)
+    ? state.editingTemplateId
+    : state.templates[0].id);
+  renderTemplateSelect();
+});
+
+renderTemplateSelect();
+
+// Initial WebGPU note (transcription works without it, rewriter doesn't)
+if (!("gpu" in navigator)) {
+  llmStatus.textContent = "WebGPU unavailable — rewriter disabled";
+}
+</script>
+</body>
+</html>
