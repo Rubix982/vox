@@ -3,1123 +3,2340 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Voice → Claude Code (local Whisper)</title>
+<title>Vox — speak the instruction, paste the prompt</title>
+<meta name="description" content="Vox turns spoken instructions into structured prompts for your LM. Whisper transcribes, a local model shapes. Nothing leaves your device.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Fonts are the one network request that isn't a model download; offline, the fallbacks below take over cleanly. -->
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0f1115;
-    --panel: #161922;
-    --panel-2: #1c2030;
-    --border: #2a2f3d;
-    --text: #e6e8ee;
-    --text-dim: #9aa1b2;
-    --text-faint: #6c7384;
-    --accent: #7aa2f7;
-    --accent-2: #9ece6a;
-    --danger: #f7768e;
-    --warn: #e0af68;
-    --radius: 10px;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    /* Chassis */
+    --rail:        #0c0d0b;
+    --chassis:     #1a1c18;
+    --chassis-hi:  #23261f;
+    --chassis-lo:  #121410;
+    --edge:        #33372c;
+    --edge-soft:   #2a2d25;
+
+    /* Silkscreen text on metal */
+    --ink:         #cbc9bb;
+    --ink-dim:     #8d8c7f;
+    --ink-faint:   #64645b;
+
+    /* Backlit panel */
+    --lcd:         #e9e7da;
+    --lcd-deep:    #dedbcb;
+    --lcd-ink:     #1b1c18;
+    --lcd-dim:     #6b6a5e;
+
+    /* Signal colors — each one means exactly one thing */
+    --lamp:        #e8a33d;  /* primary action, backlight */
+    --lamp-deep:   #b87c1f;
+    --rec:         #d8402f;  /* recording */
+    --led:         #9fbf3b;  /* ready / done */
+
+    --radius:      4px;
+    --radius-lg:   8px;
+    --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --sans:    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono:    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f6f7f9;
-      --panel: #ffffff;
-      --panel-2: #f0f2f6;
-      --border: #d8dde6;
-      --text: #1a1d24;
-      --text-dim: #4b5160;
-      --text-faint: #8a90a0;
-      --accent: #2e5cff;
-      --accent-2: #2e8b57;
-      --danger: #c43054;
-      --warn: #b4790c;
-    }
-  }
+
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.5; }
-  main { max-width: 760px; margin: 0 auto; padding: 28px 20px 80px; }
-  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; letter-spacing: -0.01em; }
-  .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 22px; }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
-  .row { display: flex; align-items: center; gap: 12px; }
-  .row + .row { margin-top: 12px; }
-  .grow { flex: 1; min-width: 0; }
-  .spacer { margin-left: auto; }
 
-  button {
-    background: var(--panel-2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    padding: 9px 14px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-family: inherit;
-    cursor: pointer;
-    transition: background 0.12s, border-color 0.12s, transform 0.05s;
-  }
-  button:hover:not(:disabled) { background: var(--border); }
-  button:active:not(:disabled) { transform: translateY(1px); }
-  button:disabled { opacity: 0.45; cursor: not-allowed; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #0a1226; font-weight: 600; }
-  button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
-  button.danger { background: var(--danger); border-color: var(--danger); color: #1a0a10; font-weight: 600; }
-  button.ghost { background: transparent; }
-
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; transition: background 0.15s; }
-  .dot.recording { background: var(--danger); animation: pulse 1s infinite; }
-  .dot.ok { background: var(--accent-2); }
-  .dot.warn { background: var(--warn); }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-
-  .status-text { font-size: 13px; color: var(--text-dim); }
-  .timer { font-family: var(--mono); font-size: 13px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
-
-  textarea {
-    width: 100%;
-    min-height: 160px;
-    background: var(--panel-2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px;
+  html { background: var(--rail); }
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--rail);
+    color: var(--ink);
     font-family: var(--sans);
-    font-size: 14.5px;
+    font-size: 15px;
     line-height: 1.55;
-    resize: vertical;
-    outline: none;
+    -webkit-font-smoothing: antialiased;
+    display: grid;
+    grid-template-columns: 272px minmax(0, 1fr);
+    align-items: start;
+    min-height: 100vh;
   }
-  textarea:focus { border-color: var(--accent); }
-  textarea[readonly] { background: var(--panel); }
 
-  label.field-label {
+  /* ---------- Left rail ---------- */
+
+  .rail {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 22px 14px 18px;
+    border-right: 1px solid var(--edge-soft);
+    background: linear-gradient(180deg, #16180f 0%, #0d0f0c 70%);
+  }
+  .brand { padding: 0 4px; }
+  .mark {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 34px;
+    line-height: 0.82;
+    letter-spacing: -0.045em;
+    color: #edeadb;
+    margin: 0;
+  }
+  .mark::after {
+    content: "";
     display: block;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-faint);
-    margin-bottom: 6px;
+    width: 62px;
+    height: 3px;
+    margin-top: 7px;
+    background: linear-gradient(90deg, var(--lamp), transparent);
   }
-
-  .progress {
-    width: 100%;
-    height: 4px;
-    background: var(--panel-2);
-    border-radius: 999px;
-    overflow: hidden;
-    margin-top: 8px;
-    display: none;
-  }
-  .progress.visible { display: block; }
-  .progress .bar { height: 100%; background: var(--accent); width: 0%; transition: width 0.2s ease; }
-  .progress.indeterminate .bar { width: 30%; animation: slide 1.2s linear infinite; }
-  @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
-
-  .toast {
-    display: inline-block;
+  .tagline {
+    margin: 10px 0 0;
+    font-family: var(--display);
     font-size: 13px;
-    color: var(--accent-2);
-    opacity: 0;
-    transition: opacity 0.3s;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -0.005em;
+    color: var(--ink-dim);
   }
-  .toast.show { opacity: 1; }
 
-  details.system-prompt { margin-bottom: 10px; }
-  details.system-prompt summary {
+  #btn-new-session { width: 100%; }
+  .rail__block { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  .rail__block--grow { flex: 1; }
+  .rail__head { display: flex; align-items: baseline; gap: 8px; padding: 0 4px; }
+  .rail__empty { margin: 2px 4px 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-faint); }
+  .rail__empty[hidden] { display: none; }
+
+  .sessions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; overflow-y: auto; }
+  .sessions li { position: relative; }
+  .sessions .session {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    padding: 7px 28px 8px 9px;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink-dim);
     cursor: pointer;
-    color: var(--text-dim);
-    font-size: 13px;
-    user-select: none;
-    padding: 2px 0;
   }
-  details.system-prompt summary:hover { color: var(--text); }
-  details.system-prompt textarea { min-height: 100px; margin-top: 8px; font-size: 13px; font-family: var(--mono); }
-
-  .footer-note { font-size: 12px; color: var(--text-faint); margin-top: 22px; line-height: 1.6; }
-  .footer-note code { font-family: var(--mono); background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
-  .footer-note a { color: var(--accent); }
-
-  .word-count { font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
-
-  .inline-err {
-    background: rgba(247, 118, 142, 0.08);
-    border: 1px solid rgba(247, 118, 142, 0.35);
-    color: var(--danger);
-    padding: 10px 12px;
-    border-radius: 8px;
-    font-size: 13px;
-    margin-top: 10px;
-    display: none;
+  .sessions .session:hover:not(.active) { background: #1a1d16; color: var(--ink); filter: none; }
+  .sessions .session.active {
+    background: var(--chassis-hi);
+    border-left-color: var(--lamp);
+    color: #f2e6cd;
   }
-  .inline-err.visible { display: block; }
-
-  .level {
-    width: 100%;
-    height: 6px;
-    background: var(--panel-2);
-    border-radius: 999px;
+  .sessions .session:active { transform: none; }
+  .session__meta {
+    display: block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    color: var(--ink-faint);
+    margin-bottom: 2px;
+  }
+  .session.active .session__meta { color: var(--lamp-deep); }
+  .session__snip {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    margin-top: 10px;
-    display: none;
+    line-height: 1.4;
   }
-  .level.visible { display: block; }
-  .level-fill {
-    height: 100%;
-    width: 0%;
-    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  .session__del {
+    position: absolute;
+    top: 6px;
+    right: 4px;
+    padding: 2px 6px;
+    background: transparent;
+    border: 0;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .sessions li:hover .session__del,
+  .session__del:focus-visible { opacity: 1; }
+  .session__del:hover { color: var(--rec); filter: none; }
+
+  /* ---------- Work area ---------- */
+
+  .work {
+    padding: 26px 30px 72px;
+    max-width: 2100px;
+    background: radial-gradient(70% 55% at 0% 0%, #1b1d18 0%, rgba(12,13,11,0) 70%);
+  }
+  .work__note {
+    margin: 0 4px 18px;
+    max-width: 72ch;
+    font-size: 13px;
+    color: var(--ink-dim);
+  }
+
+  /* Transcript and prompt sit side by side once there's room for both —
+     seeing the source against the result is the point of the tool. */
+  .panes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+  .panes .module { margin-bottom: 0; }
+  .module--pane textarea.lcd { min-height: 340px; }
+  @media (max-width: 1080px) {
+    .panes { grid-template-columns: minmax(0, 1fr); }
+    .panes .module { margin-bottom: 14px; }
+    .module--pane textarea.lcd { min-height: 200px; }
+  }
+  @media (min-width: 1081px) {
+    .scope { height: 104px; }
+  }
+
+  /* ---------- Lamps (model status, click to preload) ---------- */
+
+  .lamps { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .lamp-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--chassis-lo);
+    border: 1px solid var(--edge-soft);
     border-radius: 999px;
-    transition: width 0.06s linear;
+    padding: 5px 13px 5px 10px;
+    color: var(--ink-dim);
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .lamp-btn:hover:not(:disabled) { border-color: var(--edge); color: var(--ink); }
+  .lamp-btn:disabled { cursor: default; }
+  .lamp-btn .state { color: var(--ink-faint); letter-spacing: 0.04em; }
+  .led {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #3a3d33;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5);
+    flex: none;
+  }
+  .led[data-state="loading"] { background: var(--lamp); box-shadow: 0 0 8px rgba(232,163,61,0.6); animation: throb 1.1s ease-in-out infinite; }
+  .led[data-state="ready"]   { background: var(--led);  box-shadow: 0 0 8px rgba(159,191,59,0.5); }
+  .led[data-state="off"]     { background: #4a2f2b; }
+  @keyframes throb { 50% { opacity: 0.3; } }
+
+  /* ---------- Modules ---------- */
+
+  .module {
+    background: linear-gradient(180deg, var(--chassis-hi), var(--chassis));
+    border: 1px solid var(--edge-soft);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.045) inset, 0 10px 24px -18px #000;
+    padding: 14px 16px 16px;
+    margin-bottom: 14px;
   }
 
-  textarea.live {
-    border-color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 6%, var(--panel-2));
-  }
-  .interim { color: var(--text-faint); font-style: italic; }
-
-  .template-row {
+  .module__bar {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 10px;
     flex-wrap: wrap;
+    margin-bottom: 12px;
   }
-  .template-row select {
-    background: var(--panel-2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 7px 10px;
-    font-family: inherit;
-    font-size: 14px;
-    min-width: 220px;
+  .silk {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
   }
-  .template-row select:focus { outline: none; border-color: var(--accent); }
+  .silk--key { color: #ded9c6; }
+  .meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .push { margin-left: auto; }
 
-  dialog.tpl-dialog {
-    width: min(960px, 94vw);
-    max-height: 88vh;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--panel);
-    color: var(--text);
-    padding: 0;
+  /* ---------- Transport ---------- */
+
+  .scope {
+    position: relative;
+    height: 84px;
+    border-radius: var(--radius);
+    background: #0b0c0a;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.75), inset 0 0 0 1px rgba(255,255,255,0.03);
     overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
-  dialog.tpl-dialog::backdrop {
-    background: rgba(0,0,0,0.55);
-    backdrop-filter: blur(2px);
-  }
-  .tpl-dialog-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--border);
-  }
-  .tpl-dialog-body {
+  .scope canvas { display: block; width: 100%; height: 100%; }
+  .scope__idle {
+    position: absolute;
+    inset: 0;
     display: grid;
-    grid-template-columns: 240px 1fr;
-    min-height: 460px;
-    max-height: calc(88vh - 60px);
+    place-items: center;
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #4a4d42;
+    pointer-events: none;
   }
-  .tpl-list-pane {
-    border-right: 1px solid var(--border);
-    padding: 14px;
-    background: var(--panel-2);
-    overflow-y: auto;
+  .scope__idle[hidden] { display: none; }
+
+  .transport {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 10px;
+    align-items: stretch;
+    margin-top: 12px;
+  }
+  .transport button[hidden] { display: none; }
+  .timecode.held { color: var(--lamp); }
+  .timecode {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+    color: var(--ink-dim);
+    font-variant-numeric: tabular-nums;
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    padding: 0 14px;
+    border: 1px solid var(--edge-soft);
+    border-radius: var(--radius);
+    background: var(--chassis-lo);
   }
-  #tpl-list { list-style: none; padding: 0; margin: 0 0 12px; flex: 1; }
-  #tpl-list li {
-    padding: 8px 10px;
-    border-radius: 6px;
+  .timecode.hot { color: var(--rec); }
+
+  /* ---------- Buttons ---------- */
+
+  button {
+    font-family: var(--display);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: linear-gradient(180deg, #2b2e26, #212419);
+    border: 1px solid var(--edge);
+    border-radius: var(--radius);
+    padding: 9px 15px;
     cursor: pointer;
+    transition: filter 0.12s, border-color 0.12s, color 0.12s;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.22); }
+  button:active:not(:disabled) { filter: brightness(0.92); transform: translateY(1px); }
+  button:disabled { opacity: 0.38; cursor: not-allowed; }
+  button.flat { background: transparent; border-color: var(--edge-soft); color: var(--ink-dim); }
+  button.flat:hover:not(:disabled) { color: var(--ink); border-color: var(--edge); }
+  button.lit {
+    background: linear-gradient(180deg, #f2b155, var(--lamp));
+    border-color: var(--lamp-deep);
+    color: #241a06;
+  }
+  button.armed {
+    background: linear-gradient(180deg, #e5543f, var(--rec));
+    border-color: #a52b1e;
+    color: #2a0906;
+  }
+  button.done { color: var(--led); border-color: rgba(159,191,59,0.5); }
+  button.lit.done { color: #241a06; }
+
+  .btn-record {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
     font-size: 14px;
-    color: var(--text-dim);
-    margin-bottom: 2px;
+    letter-spacing: 0.12em;
+    padding: 14px 20px;
+  }
+  .btn-record .bullet {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: var(--rec);
+    box-shadow: 0 0 0 3px rgba(216,64,47,0.16);
+    flex: none;
+  }
+  .btn-record.armed .bullet { background: #2a0906; box-shadow: none; border-radius: 2px; }
+  .btn-record.armed { animation: lamp 1.6s ease-in-out infinite; }
+  .btn-record:disabled .bullet { background: var(--ink-faint); box-shadow: none; }
+  @keyframes lamp {
+    50% { box-shadow: 0 0 22px -2px rgba(216,64,47,0.55); }
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--lamp);
+    outline-offset: 2px;
+  }
+
+  /* ---------- Selects & switch ---------- */
+
+  select {
+    font-family: var(--sans);
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--chassis-lo);
+    border: 1px solid var(--edge-soft);
+    border-radius: var(--radius);
+    padding: 6px 9px;
+    max-width: 100%;
+  }
+  select:hover { border-color: var(--edge); }
+  select:focus { outline: none; border-color: var(--lamp); }
+
+  .switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
     user-select: none;
   }
-  #tpl-list li:hover:not(.active) { background: var(--border); color: var(--text); }
-  #tpl-list li.active {
-    background: var(--accent);
-    color: #0a1226;
-    font-weight: 600;
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch .track {
+    width: 30px; height: 16px; border-radius: 999px; flex: none;
+    background: var(--chassis-lo);
+    border: 1px solid var(--edge-soft);
+    position: relative;
+    transition: background 0.15s, border-color 0.15s;
   }
-  .tpl-list-actions { display: flex; flex-direction: column; gap: 6px; }
-  .tpl-list-actions button { font-size: 13px; }
+  .switch .track::after {
+    content: "";
+    position: absolute; top: 2px; left: 2px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #5b5f50;
+    transition: transform 0.15s, background 0.15s;
+  }
+  .switch input:checked + .track { border-color: var(--lamp-deep); }
+  .switch input:checked + .track::after { transform: translateX(14px); background: var(--lamp); }
+  .switch input:focus-visible + .track { outline: 2px solid var(--lamp); outline-offset: 2px; }
 
-  .tpl-edit {
-    padding: 16px 18px;
+  /* ---------- LCD panels ---------- */
+
+  .lcd-frame {
+    border-radius: var(--radius);
+    padding: 3px;
+    background: linear-gradient(180deg, #0d0e0c, #191b16);
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.7);
+  }
+  textarea.lcd {
+    display: block;
+    width: 100%;
+    min-height: 168px;
+    background: var(--lcd);
+    color: var(--lcd-ink);
+    border: 0;
+    border-radius: 2px;
+    padding: 14px 15px;
+    font-family: var(--sans);
+    font-size: 14.5px;
+    line-height: 1.6;
+    resize: vertical;
+    outline: none;
+    caret-color: var(--lamp-deep);
+  }
+  textarea.lcd::placeholder { color: var(--lcd-dim); }
+  textarea.lcd::selection { background: rgba(232,163,61,0.35); }
+  textarea.lcd--mono {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.65;
+    background: var(--lcd-deep);
+  }
+  .lcd-frame:focus-within { box-shadow: inset 0 2px 5px rgba(0,0,0,0.7), 0 0 0 1px var(--lamp-deep); }
+  .lit-up { animation: backlight 0.5s ease-out; }
+  @keyframes backlight {
+    0%   { filter: brightness(0.55) saturate(0.6); }
+    35%  { filter: brightness(1.12); }
+    100% { filter: brightness(1); }
+  }
+
+  .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+  /* ---------- Segmented view switch ---------- */
+
+  .seg { display: inline-flex; border: 1px solid var(--edge-soft); border-radius: var(--radius); overflow: hidden; }
+  .seg__btn {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    padding: 7px 12px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--ink-faint);
+  }
+  .seg__btn + .seg__btn { border-left: 1px solid var(--edge-soft); }
+  .seg__btn:hover:not([aria-pressed="true"]) { color: var(--ink); filter: none; background: var(--chassis-hi); }
+  .seg__btn[aria-pressed="true"] { background: var(--chassis-hi); color: var(--lamp); }
+  .seg__btn:active { transform: none; }
+
+  /* ---------- Rendered Markdown ---------- */
+
+  .md-view {
+    background: var(--lcd);
+    color: var(--lcd-ink);
+    border-radius: 2px;
+    padding: 18px 20px 22px;
+    min-height: 340px;
+    max-height: 72vh;
+    overflow-y: auto;
+    font-family: var(--sans);
+    font-size: 14.5px;
+    line-height: 1.6;
+    outline: none;
+  }
+  .md-view[hidden] { display: none; }
+  .md-view > :first-child { margin-top: 0; }
+  /* Sections arrive as either # or ## depending on the model, and both should
+     read as a section rule rather than a size step. */
+  .md-view h2, .md-view h3 {
+    font-family: var(--display);
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: #6d6a56;
+    margin: 22px 0 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #cfccb9;
+  }
+  .md-view h4, .md-view h5, .md-view h6 {
+    font-family: var(--display);
+    font-size: 13.5px;
+    font-weight: 700;
+    letter-spacing: 0;
+    margin: 16px 0 4px;
+    color: #2a2b22;
+  }
+  .md-view p { margin: 0 0 10px; }
+  .md-view ul, .md-view ol { margin: 0 0 12px; padding-left: 20px; }
+  .md-view li { margin-bottom: 4px; }
+  .md-view li::marker { color: var(--lamp-deep); }
+  .md-view code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: #dcd9c7;
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+  .md-view pre {
+    margin: 0 0 12px;
+    padding: 12px 14px;
+    background: #1a1c18;
+    border-radius: var(--radius);
+    overflow-x: auto;
+  }
+  .md-view pre code { background: none; color: #d8d5c4; padding: 0; font-size: 12.5px; line-height: 1.55; }
+  .md-view strong { font-weight: 600; }
+  .md-view blockquote {
+    margin: 0 0 12px;
+    padding-left: 12px;
+    border-left: 2px solid var(--lamp-deep);
+    color: #4d4c40;
+  }
+  .md-view hr { border: 0; border-top: 1px solid #cfccb9; margin: 16px 0; }
+  .md-view .md-empty { color: var(--lcd-dim); }
+
+  /* ---------- Signal chain divider ---------- */
+
+  .chain {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 2px 4px 14px;
+    flex-wrap: wrap;
+  }
+  /* A bus line trailing off to the right: the signal now flows sideways,
+     transcript into prompt, so the rule runs that way too. */
+  .chain::after {
+    content: "";
+    flex: 1;
+    min-width: 20px;
+    height: 1px;
+    background: linear-gradient(90deg, var(--edge), transparent);
+  }
+  .chain .silk { color: var(--ink-faint); }
+
+  /* ---------- Notices ---------- */
+
+  .notice {
+    border-left: 2px solid var(--rec);
+    background: rgba(216,64,47,0.08);
+    color: #f0a99e;
+    padding: 9px 12px;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  .notice[hidden] { display: none; }
+  .notice--wide { margin: 0 4px 16px; border-left-color: var(--lamp); background: rgba(232,163,61,0.09); color: #f0cd94; }
+  .notice--warn { border-left-color: var(--lamp); background: rgba(232,163,61,0.09); color: #f0cd94; }
+  .notice code { background: rgba(0,0,0,0.35); border-radius: 3px; padding: 1px 5px; font-family: var(--mono); font-size: 11.5px; }
+
+  .progress {
+    height: 3px;
+    border-radius: 999px;
+    background: var(--chassis-lo);
+    overflow: hidden;
+    margin-top: 10px;
+  }
+  .progress[hidden] { display: none; }
+  .progress .bar { height: 100%; width: 0%; background: var(--lamp); transition: width 0.25s ease; }
+  .progress.sweeping .bar { width: 34%; animation: sweep 1.1s linear infinite; }
+  @keyframes sweep { from { margin-left: -34%; } to { margin-left: 100%; } }
+
+  /* ---------- Footer ---------- */
+
+  .plate {
+    margin-top: 26px;
+    padding: 16px 4px 0;
+    border-top: 1px solid var(--edge-soft);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--ink-faint);
+  }
+  .plate p { margin: 0 0 8px; max-width: 74ch; }
+  .plate code, kbd {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    background: var(--chassis-lo);
+    border: 1px solid var(--edge-soft);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--ink-dim);
+  }
+  .keys { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 10px; }
+  .keys span { color: var(--ink-faint); }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+
+  /* ---------- Template manager ---------- */
+
+  dialog.rack {
+    width: min(980px, 94vw);
+    max-height: 88vh;
+    padding: 0;
+    overflow: hidden;
+    color: var(--ink);
+    background: var(--chassis);
+    border: 1px solid var(--edge);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 40px 90px -30px #000;
+  }
+  dialog.rack::backdrop { background: rgba(6,7,5,0.72); }
+  .rack__head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--edge-soft);
+    background: var(--chassis-hi);
+  }
+  .rack__body { display: grid; grid-template-columns: 232px 1fr; min-height: 440px; max-height: calc(88vh - 56px); }
+  .rack__list {
+    border-right: 1px solid var(--edge-soft);
+    background: var(--chassis-lo);
+    padding: 12px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
   }
-  .tpl-edit label {
+  #tpl-list { list-style: none; margin: 0; padding: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  #tpl-list li {
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    font-size: 13.5px;
+    color: var(--ink-dim);
+    cursor: pointer;
+  }
+  #tpl-list li:hover:not(.active) { background: var(--chassis-hi); color: var(--ink); }
+  #tpl-list li.active { background: var(--chassis-hi); border-color: var(--lamp-deep); color: #f0d9ab; }
+  .rack__actions { display: flex; flex-direction: column; gap: 6px; }
+  .rack__edit { padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+  .field > span {
     display: block;
+    font-family: var(--display);
     font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-faint);
+    color: var(--ink-dim);
+    margin-bottom: 6px;
   }
-  .tpl-edit label code {
-    text-transform: none;
-    letter-spacing: 0;
-    font-family: var(--mono);
-    background: var(--panel-2);
-    padding: 1px 5px;
-    border-radius: 3px;
-    color: var(--text-dim);
-  }
-  .tpl-edit input[type=text],
-  .tpl-edit textarea {
+  .field > span em {
     display: block;
-    width: 100%;
-    background: var(--panel-2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 9px 10px;
-    margin-top: 6px;
-    font-family: var(--sans);
-    font-size: 14px;
-    outline: none;
+    font: 400 12px/1.5 var(--sans);
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--ink-faint);
+    margin-top: 3px;
   }
-  .tpl-edit input[type=text]:focus,
-  .tpl-edit textarea:focus { border-color: var(--accent); }
-  .tpl-edit textarea {
+  .field input[type=text], .field textarea {
+    display: block; width: 100%;
+    background: var(--lcd);
+    color: var(--lcd-ink);
+    border: 1px solid var(--edge-soft);
+    border-radius: var(--radius);
+    padding: 9px 11px;
     font-family: var(--mono);
     font-size: 12.5px;
-    line-height: 1.55;
-    min-height: 110px;
+    line-height: 1.6;
+    outline: none;
     resize: vertical;
   }
-  .tpl-edit textarea#tpl-before,
-  .tpl-edit textarea#tpl-after { min-height: 150px; }
-  .tpl-edit-actions { margin-top: 6px; display: flex; justify-content: flex-end; }
+  .field input[type=text] { font-family: var(--sans); font-size: 14px; }
+  .field textarea { min-height: 132px; }
+  .field :focus { border-color: var(--lamp); }
+  .rack__foot { display: flex; justify-content: flex-end; }
 
-  @media (max-width: 640px) {
-    .tpl-dialog-body { grid-template-columns: 1fr; }
-    .tpl-list-pane { border-right: none; border-bottom: 1px solid var(--border); max-height: 30vh; }
+  @media (max-width: 900px) {
+    body { grid-template-columns: 1fr; }
+    .rail {
+      position: static;
+      height: auto;
+      border-right: 0;
+      border-bottom: 1px solid var(--edge-soft);
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 14px 22px;
+    }
+    .rail__block--grow { flex: 1 1 260px; }
+    .sessions { max-height: 180px; }
+    .lamps { flex-direction: row; flex-wrap: wrap; }
+    #btn-new-session { width: auto; align-self: center; }
+  }
+
+  @media (max-width: 720px) {
+    .work { padding: 18px 14px 48px; }
+    .mark { font-size: 28px; }
+    .transport { grid-template-columns: 1fr; }
+    .timecode { justify-content: center; padding: 8px; }
+    .rack__body { grid-template-columns: 1fr; }
+    .rack__list { border-right: 0; border-bottom: 1px solid var(--edge-soft); max-height: 34vh; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
   }
 </style>
 </head>
 <body>
-<main>
-  <h1>Voice → Claude Code</h1>
-  <p class="sub">Local Whisper transcription, optional local LLM rewrite. Audio never leaves your device. Models download once from Hugging Face, then run fully offline.</p>
 
-  <!-- Recording controls -->
-  <section class="panel" aria-label="Recording controls">
-    <div class="row">
-      <div id="rec-dot" class="dot" aria-hidden="true"></div>
-      <span id="rec-status" class="status-text">Ready</span>
-      <span id="rec-timer" class="timer spacer">0:00</span>
+<aside class="rail">
+  <header class="brand">
+    <h1 class="mark">VOX</h1>
+    <p class="tagline">Speak the instruction.<br>Paste the prompt.</p>
+  </header>
+
+  <button id="btn-new-session" class="lit" type="button">New session</button>
+
+  <section class="rail__block rail__block--grow" aria-labelledby="silk-sessions">
+    <div class="rail__head">
+      <span class="silk" id="silk-sessions">Sessions</span>
+      <span class="meta push" id="session-count"></span>
     </div>
-    <div class="row">
-      <button id="btn-record" class="primary grow" type="button">Start recording</button>
-      <button id="btn-clear" class="ghost" type="button">Clear</button>
-    </div>
-    <div id="level-meter" class="level"><div class="level-fill"></div></div>
-    <div id="whisper-progress" class="progress"><div class="bar"></div></div>
-    <div id="rec-error" class="inline-err" role="alert"></div>
+    <ul class="sessions" id="session-list"></ul>
+    <p class="rail__empty" id="session-empty">Nothing here yet. Record a take and it lands in this list.</p>
   </section>
 
-  <!-- Raw transcript -->
-  <section class="panel" aria-label="Raw transcript">
-    <label class="field-label" for="raw">Raw transcript <span class="word-count" id="raw-count">· 0 words</span></label>
-    <textarea id="raw" placeholder="Transcript will appear here after recording stops. You can edit it before refining."></textarea>
-    <div class="row" style="margin-top: 10px;">
-      <button id="btn-copy-raw" type="button">Copy raw</button>
-      <button id="btn-refine" class="primary" type="button" disabled>Refine prompt →</button>
-      <span id="raw-toast" class="toast">Copied</span>
+  <section class="rail__block" aria-labelledby="silk-machine">
+    <div class="rail__head"><span class="silk" id="silk-machine">Machine</span></div>
+    <div class="lamps">
+      <button class="lamp-btn" id="lamp-whisper" type="button" title="Load the transcription model now, before you record">
+        <span class="led" id="led-whisper" data-state="idle"></span>
+        Whisper <span class="state" id="state-whisper">Loads on first use</span>
+      </button>
+      <button class="lamp-btn" id="lamp-shaper" type="button" title="Load the shaping model now, before you record">
+        <span class="led" id="led-shaper" data-state="idle"></span>
+        Shaper <span class="state" id="state-shaper">Loads on first use</span>
+      </button>
+    </div>
+  </section>
+</aside>
+
+<main class="work">
+
+  <p class="notice notice--wide" id="insecure" hidden></p>
+  <p class="notice notice--wide" id="storage-warn" role="alert" hidden></p>
+  <p class="work__note">Whisper writes down what you said. A local model shapes it into a prompt worth sending. No audio, no text, no telemetry leaves this machine.</p>
+
+  <!-- ── Capture ───────────────────────────────────────────── -->
+  <section class="module" aria-labelledby="silk-capture">
+    <div class="module__bar">
+      <span class="silk silk--key" id="silk-capture">Capture</span>
+      <span class="meta" id="capture-state" role="status">Ready</span>
+      <label class="sr-only" for="mic-select">Microphone</label>
+      <select id="mic-select" class="push" title="Microphone"><option>Default microphone</option></select>
+    </div>
+
+    <div class="scope">
+      <canvas id="scope" aria-hidden="true"></canvas>
+      <div class="scope__idle" id="scope-idle">No take yet</div>
+    </div>
+
+    <div class="transport">
+      <button id="btn-record" class="btn-record lit" type="button">
+        <span class="bullet" aria-hidden="true"></span><span id="btn-record-label">Start recording</span>
+      </button>
+      <button id="btn-pause" type="button" hidden>Pause</button>
+      <div class="timecode" id="timecode" aria-hidden="true">0:00.0</div>
+      <button id="btn-clear" class="flat" type="button">Clear</button>
+    </div>
+
+    <div class="progress" id="whisper-progress" hidden><div class="bar"></div></div>
+    <p class="notice" id="capture-error" role="alert" hidden></p>
+  </section>
+
+  <div class="chain">
+    <span class="silk">Shape with</span>
+    <label class="sr-only" for="template-select">Template</label>
+    <select id="template-select"></select>
+    <label class="sr-only" for="model-select">Model</label>
+    <select id="model-select"></select>
+    <button id="btn-templates" class="flat" type="button">Edit templates</button>
+  </div>
+
+  <div class="panes">
+
+  <!-- ── Transcript ────────────────────────────────────────── -->
+  <section class="module module--pane" aria-labelledby="silk-transcript">
+    <div class="module__bar">
+      <span class="silk silk--key" id="silk-transcript">Transcript</span>
+      <span class="meta" id="raw-count">0 words</span>
+      <span class="meta push">Editable — fix names and jargon before shaping</span>
+    </div>
+    <div class="lcd-frame">
+      <label class="sr-only" for="raw">Transcript</label>
+      <textarea id="raw" class="lcd" spellcheck="true" placeholder="Record a take and your words land here. Whisper gets technical terms wrong sometimes — correct them here and the shaped prompt inherits the fix."></textarea>
+    </div>
+    <div class="actions">
+      <button id="btn-copy-raw" type="button">Copy transcript</button>
+      <button id="btn-shape" class="lit" type="button" disabled>Shape prompt</button>
+      <label class="switch push" title="Shape the prompt as soon as a take finishes transcribing">
+        <input type="checkbox" id="auto-shape">
+        <span class="track"></span>
+        <span class="silk">Auto-shape</span>
+      </label>
     </div>
   </section>
 
-  <!-- Refined prompt -->
-  <section class="panel" aria-label="Refined prompt">
-    <div class="template-row">
-      <label class="field-label" for="template-select" style="margin: 0;">Template</label>
-      <select id="template-select" aria-label="Active template"></select>
-      <button id="btn-manage-templates" type="button" class="ghost">Manage templates</button>
+  <!-- ── Prompt ────────────────────────────────────────────── -->
+  <section class="module module--pane" aria-labelledby="silk-prompt">
+    <div class="module__bar">
+      <span class="silk silk--key" id="silk-prompt">Prompt</span>
+      <span class="meta" id="refined-count">0 words</span>
+      <span class="meta push" id="shape-state" role="status"></span>
     </div>
-    <label class="field-label" for="refined">Refined prompt <span class="word-count" id="refined-count">· 0 words</span></label>
-    <textarea id="refined" placeholder="Click 'Refine prompt' above. The local LLM downloads once (~600MB) on first use, then runs offline."></textarea>
-    <div id="llm-progress" class="progress"><div class="bar"></div></div>
-    <div class="row" style="margin-top: 10px;">
-      <button id="btn-copy-refined" type="button">Copy refined</button>
-      <button id="btn-regen" type="button" disabled>Regenerate</button>
-      <span id="refined-toast" class="toast">Copied</span>
-      <span id="llm-status" class="status-text spacer"></span>
+    <div class="lcd-frame">
+      <label class="sr-only" for="refined">Shaped prompt</label>
+      <textarea id="refined" class="lcd lcd--mono" spellcheck="false" placeholder="The shaped prompt appears here, structured by the template above and ready to paste into your LM."></textarea>
+      <div class="md-view" id="md-view" tabindex="0" hidden></div>
     </div>
-    <div id="llm-error" class="inline-err" role="alert"></div>
+    <div class="progress" id="shape-progress" hidden><div class="bar"></div></div>
+    <div class="actions">
+      <button id="btn-copy-refined" class="lit" type="button">Copy prompt</button>
+      <button id="btn-regen" type="button" disabled>Shape again</button>
+      <div class="seg push" role="group" aria-label="Prompt view">
+        <button id="view-read" class="seg__btn" type="button" aria-pressed="false">Formatted</button>
+        <button id="view-edit" class="seg__btn" type="button" aria-pressed="true">Markdown</button>
+      </div>
+    </div>
+    <p class="notice notice--warn" id="shape-warn" hidden></p>
+    <p class="notice" id="shape-error" role="alert" hidden></p>
   </section>
 
-  <!-- Template manager modal -->
-  <dialog id="template-dialog" class="tpl-dialog" aria-label="Manage prompt templates">
-    <div class="tpl-dialog-header">
-      <strong>Prompt templates</strong>
-      <button id="tpl-dialog-close" type="button" class="ghost" aria-label="Close">Done</button>
-    </div>
-    <div class="tpl-dialog-body">
-      <aside class="tpl-list-pane">
-        <ul id="tpl-list" role="listbox" aria-label="Templates"></ul>
-        <div class="tpl-list-actions">
-          <button type="button" id="tpl-new">+ New template</button>
-          <button type="button" id="tpl-restore" class="ghost">Restore defaults</button>
-        </div>
-      </aside>
-      <section class="tpl-edit">
-        <label>Name<input type="text" id="tpl-name" autocomplete="off"></label>
-        <label>System prompt (high-level role for the rewriter)<textarea id="tpl-system"></textarea></label>
-        <label>Before transcript (rules, guards, definitions — sits ABOVE the <code>---</code> markers)<textarea id="tpl-before"></textarea></label>
-        <label>After transcript (output format — sits BELOW the <code>---</code> markers)<textarea id="tpl-after"></textarea></label>
-        <div class="tpl-edit-actions">
-          <button type="button" id="tpl-delete" class="danger">Delete this template</button>
-        </div>
-      </section>
-    </div>
-  </dialog>
+  </div><!-- /panes -->
 
-  <p class="footer-note">
-    Models are fetched from Hugging Face's CDN once and cached in browser storage (IndexedDB). No telemetry, no analytics, no audio uploads.
-    Whisper: <code>onnx-community/whisper-large-v3-turbo</code> on WebGPU (~800 MB, q4 quantized) — falls back to <code>Xenova/whisper-base.en</code> if WebGPU is unavailable. Rewriter: <code>Llama-3.2-1B-Instruct</code> via WebLLM (~700 MB, requires WebGPU).
-    Tested in Chrome &amp; Edge on macOS. Open via <code>file://</code> by double-clicking, or serve locally with <code>python3 -m http.server</code>.
-  </p>
+  <footer class="plate">
+    <div class="keys">
+      <span><kbd>Space</kbd> record / stop</span>
+      <span><kbd>P</kbd> pause / resume</span>
+      <span><kbd>⌘</kbd><kbd>↵</kbd> shape</span>
+      <span><kbd>⌘</kbd><kbd>⇧</kbd><kbd>↵</kbd> copy prompt</span>
+      <span><kbd>Esc</kbd> stop</span>
+    </div>
+    <p id="engine-note">Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works.</p>
+    <p>Recording and WebGPU are secure-context features, so open this over <code>http://localhost</code>, <code>https://</code>, or as a double-clicked <code>file://</code> — a bare IP address like <code>http://192.168.1.4:43869</code> silently disables both. WebGPU in Chrome or Edge gets you Whisper large-v3-turbo and the bigger shaping models; without it, both fall back to smaller models on the CPU.</p>
+  </footer>
 </main>
 
+<!-- ── Template rack ────────────────────────────────────────── -->
+<dialog id="template-dialog" class="rack" aria-label="Templates">
+  <div class="rack__head">
+    <strong class="silk silk--key">Templates</strong>
+    <span class="meta">All three fields become the system message. The transcript is sent as the user message on its own.</span>
+    <button id="tpl-close" class="lit push" type="button">Done</button>
+  </div>
+  <div class="rack__body">
+    <aside class="rack__list">
+      <ul id="tpl-list" role="listbox" aria-label="Templates"></ul>
+      <div class="rack__actions">
+        <button type="button" id="tpl-new">New template</button>
+        <button type="button" id="tpl-restore" class="flat">Restore built-ins</button>
+      </div>
+    </aside>
+    <section class="rack__edit">
+      <label class="field"><span>Name</span><input type="text" id="tpl-name" autocomplete="off"></label>
+      <label class="field"><span>Role<em>Who the model is acting as. Goes in the system message.</em></span><textarea id="tpl-system" style="min-height:80px"></textarea></label>
+      <label class="field"><span>Rules<em>What the model must and must not do. Write about "the speaker", not "me" — first-person rules get echoed back as output.</em></span><textarea id="tpl-before"></textarea></label>
+      <label class="field"><span>Reply format<em>The shape you want back. Describe each field in prose — brackets get copied out as answers.</em></span><textarea id="tpl-after"></textarea></label>
+      <div class="rack__foot"><button type="button" id="tpl-delete">Delete template</button></div>
+    </section>
+  </div>
+</dialog>
+
 <script type="module">
-import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2";
+// Namespace import, not named: a missing export here would otherwise kill the whole module at link time.
+import * as TF from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2";
 import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.79";
 
+const { pipeline, env, TextStreamer, InterruptableStoppingCriteria } = TF;
 env.allowLocalModels = false;
 
-const TPL_STORAGE_KEY = "vctcb_templates_v1";
-const TPL_ACTIVE_KEY = "vctcb_active_template_v1";
-const TRANSCRIPT_MARKER = "---";
+/* ────────────────────────────────────────────────────────────
+   WebGPU probe
 
+   `"gpu" in navigator` isn't enough — the object can exist and still
+   hand back no adapter. Probe for real, keep the reason, allow a retry.
+   ──────────────────────────────────────────────────────────── */
+const GPU = { ok: false, reason: "", adapter: "" };
+
+async function probeGPU() {
+  GPU.ok = false;
+  GPU.adapter = "";
+  if (!window.isSecureContext) {
+    GPU.reason = "This page isn't running in a secure context, so the browser hides WebGPU. Serve it with `python3 -m http.server 43869` and open http://localhost:43869 instead of opening the file directly.";
+    return GPU;
+  }
+  if (!navigator.gpu) {
+    GPU.reason = "This browser doesn't expose navigator.gpu. Chrome or Edge 113 and later do. In Safari it sits behind a feature flag, and in some Chromium forks it's disabled by the browser vendor.";
+    return GPU;
+  }
+  try {
+    const adapter = await Promise.race([
+      navigator.gpu.requestAdapter(),
+      new Promise(r => setTimeout(() => r("timeout"), 4000)),
+    ]);
+    if (adapter === "timeout") { GPU.reason = "The GPU adapter request never came back. Reload the page to try again."; return GPU; }
+    if (!adapter) { GPU.reason = "WebGPU is present but returned no adapter — usually a blocklisted or unavailable GPU. Open chrome://gpu to see why."; return GPU; }
+    GPU.ok = true;
+    GPU.reason = "";
+    try { GPU.adapter = (await adapter.requestAdapterInfo?.())?.description || ""; } catch {}
+  } catch (e) {
+    GPU.reason = `Requesting a GPU adapter failed: ${e.message}`;
+  }
+  return GPU;
+}
+
+await probeGPU();
+
+/* ────────────────────────────────────────────────────────────
+   Storage
+   ──────────────────────────────────────────────────────────── */
+const KEY = {
+  templates: "vox.templates.v4",
+  active:    "vox.template.active.v4",
+  model:     "vox.model.v1",
+  autoShape: "vox.autoshape.v1",
+  view:      "vox.promptview.v1",
+  draft:     "vox.draft.v1",
+  sessions:  "vox.sessions.v1",
+  current:   "vox.session.current.v1",
+};
+const SESSION_LIMIT = 60;
+/* Writes can fail — a full quota, or a browser that blocks storage outright.
+   Swallowing that silently means sessions quietly stop saving, so every write
+   reports back and a failure surfaces in the interface. */
+let storageProblem = "";
+
+function renderStorageWarning() {
+  const el = document.getElementById("storage-warn");   // may not exist yet at first write
+  if (el && storageProblem) setNotice(el, storageProblem);
+}
+
+function noteStorageFailure(e) {
+  const quota = /quota/i.test(e?.name || "") || e?.code === 22 || e?.code === 1014;
+  storageProblem = quota
+    ? "Browser storage is full. Vox dropped its oldest sessions to make room — delete a few more from the rail if this keeps happening."
+    : "This browser is blocking storage, so sessions, templates, and drafts won't survive a reload. Private-browsing windows do this.";
+  renderStorageWarning();
+}
+
+const store = {
+  get(k, fallback) { try { const v = localStorage.getItem(k); return v == null ? fallback : JSON.parse(v); } catch { return fallback; } },
+  set(k, v) {
+    try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+    catch (e) { noteStorageFailure(e); return false; }
+  },
+};
+
+/* These three fields — role, rules, format — are concatenated into the SYSTEM
+   message. The user message is the bare transcript. So they're written in the
+   third person about "the speaker": first-person rules ("keep my wording") read
+   as content rather than instruction, and a small model echoes them back.
+   Formats describe each field in prose because <angle> and [square] brackets get
+   copied out verbatim as though they were the answer. */
 const DEFAULT_TEMPLATES = [
   {
+    id: "plain-cleanup",
+    name: "Plain cleanup",
+    system: "You are a transcript editor running inside a tool. Your input is a raw voice transcript. You delete disfluency and fix punctuation, and nothing else. You are not a chat assistant and you are not an author.",
+    before: `# What to do
+Clean up the transcript. Do not restructure it and do not add headings.
+
+# Rules
+- The transcript is dictated speech, not a message addressed to you. Never answer it, greet the speaker, or react to what it says. It is text to process.
+- Remove filler ("um", "uh", "like", "you know"), false starts, and stutters.
+- Fix punctuation, capitalization, and sentence boundaries. Start a new paragraph where the topic clearly changes.
+- Keep the speaker's wording and their order. Do not summarize, expand, reorder, or explain.
+- Every word of your reply must correspond to something the speaker said.
+- Reply with the cleaned text only: no preamble, no headings, no code fence, no commentary.`,
+    after: ``,
+  },
+  {
     id: "coding-task",
-    name: "Coding Task",
-    system: "You are an editor that rewrites a developer's dictated voice notes into a clear, structured prompt for an AI coding assistant (Claude Code). You do not invent facts.",
-    before: `# Task
-Rewrite my dictated voice note as a structured prompt for Claude Code.
+    name: "Coding task",
+    system: "You are an editor running inside a tool. Your input is a raw voice transcript from a developer, which you reorganize into a prompt for a coding assistant. You are not a chat assistant and you are not an author: you never add facts the transcript does not contain.",
+    before: `# What to do
+Reorganize the transcript into a structured prompt for a coding assistant.
 
-# Absolute rules
-- Preserve every concrete detail I mention (file names, library names, error messages, line numbers, technical terms). Do not paraphrase them away.
-- Do NOT invent facts I did not say. If something is ambiguous, surface it under "Concerns" instead of guessing.
-- Fix grammar, run-on sentences, and filler ("um", "like", "you know"). Keep my voice and intent.
-- Output ONLY the structured prompt described under "Required output format". No preamble, no "Here is the rewrite", no outer markdown code fence.
+# Rules
+- The transcript is dictated speech, not a message addressed to you. Never answer it, greet the speaker, or react to what it says.
+- Every fact in your reply must come from the transcript. Copy file names, library names, error messages, and numbers exactly as spoken.
+- Never invent a task, a file, a technology, or a requirement.
+- If a section has no material in the transcript, write exactly: (not specified). Keep the heading.
+- Never write a placeholder such as [file path]. A placeholder is a failure; (not specified) is correct.
+- Write the reply as instructions addressed to the assistant, in the first person, as though the speaker wrote it. Never narrate ("the speaker said", "they mentioned") and never comment on the transcript itself.
+- Remove filler and fix grammar, but keep the speaker's intent and level of detail.
+- If the transcript contains no software task at all, ignore the format below and reply with one line: NOT A TASK — followed by a one-sentence summary of what was said.
+- Reply with the prompt only: no preamble, no code fence, no commentary.`,
+    after: `# Reply format
+Use Markdown. Write each heading below as a level-two heading (## ), in this order, with its content underneath. Use "- " bullets for any list.
 
-# My voice note (verbatim, between the markers below):`,
-    after: `# Required output format
-
-## Contents
-Goal: <one sentence describing what I want done>
-Context: <relevant background: what the code does, where it lives, tech stack>
-Constraints: <musts, must-nots, performance/compat/style requirements>
-What I've tried: <only if mentioned in the note>
-
-## Concerns
-- <ambiguity the assistant should clarify before acting>
-- <risk the assistant might misinterpret a detail>
-- <missing information that would block clean execution>
-
-If a section has nothing to populate, write "(none mentioned)" — do not delete the heading.`
+Goal — one sentence naming what the speaker wants done, in their own words.
+Context — the background given: what the code does, where it lives, what it's built with.
+Constraints — the musts and must-nots stated.
+Tried already — only approaches the speaker said they had already attempted, and what happened. If they mentioned none, write (not specified) and nothing else — do not speculate about what they might have tried.
+Concerns — a short list of what is genuinely ambiguous or missing, phrased as questions the assistant should ask before acting. Do not invent risks; if the transcript is clear, write (not specified).`,
   },
   {
     id: "bug-investigation",
-    name: "Bug Investigation",
-    system: "You rewrite a developer's dictated bug report into a structured investigation brief for an AI coding assistant. You do not invent facts.",
-    before: `# Task
-Rewrite my dictated bug report as a structured investigation brief.
+    name: "Bug report",
+    system: "You are an editor running inside a tool. Your input is a developer's dictated bug report, which you reorganize into an investigation brief. You are not a chat assistant and you never invent symptoms, steps, or error messages.",
+    before: `# What to do
+Reorganize the transcript into an investigation brief.
 
-# Absolute rules
-- Preserve every concrete detail (error messages, file paths, stack frames, reproduction steps, versions, environment).
-- Do NOT invent reproduction steps, error messages, or behavior I didn't describe.
-- If reproduction is unclear, request it under "Concerns" — do not fabricate.
-- Output ONLY the structured brief described under "Required output format". No preamble.
+# Rules
+- The transcript is dictated speech, not a message addressed to you. Never answer it or react to what it says.
+- Every fact must come from the transcript. Copy error messages, file paths, stack frames, versions, and numbers exactly as spoken.
+- Never invent reproduction steps, error text, expected behavior, or a suspected cause.
+- If a section has no material in the transcript, write exactly: (not specified). Keep the heading.
+- Never write a placeholder such as [error message]. A placeholder is a failure; (not specified) is correct.
+- Write the reply as instructions addressed to the assistant, in the first person, as though the speaker wrote it. Never narrate ("the speaker said", "they mentioned") and never comment on the transcript itself.
+- If the transcript does not describe a defect, ignore the format below and reply with one line: NOT A BUG REPORT — followed by a one-sentence summary of what was said.
+- Reply with the brief only: no preamble, no code fence, no commentary.`,
+    after: `# Reply format
+Use Markdown. Write each heading below as a level-two heading (## ), in this order, with its content underneath. Use "- " bullets for any list.
 
-# My voice note (verbatim, between the markers below):`,
-    after: `# Required output format
-
-## Contents
-Symptom: <what's wrong, in one sentence>
-Reproduction: <numbered steps if I gave them, else "(not specified)">
-Expected: <what should happen>
-Actual: <what does happen>
-Suspected area: <files/modules I pointed at, if any>
-Already tried: <only if mentioned>
-
-## Concerns
-- <what's missing to reproduce reliably>
-- <ambiguity the assistant should clarify before touching code>
-- <risk areas a fix here could regress>
-
-If a section has nothing to populate, write "(none mentioned)".`
+Symptom — what is wrong, in one sentence.
+Reproduction — the steps given, numbered. If none were given, write (not specified).
+Expected — what the speaker said should happen.
+Actual — what the speaker said does happen.
+Suspected area — only the files or modules the speaker pointed at.
+Missing information — what the transcript lacks in order to reproduce this reliably.`,
   },
   {
     id: "code-review",
-    name: "Code Review Brief",
-    system: "You rewrite a developer's dictated review notes into a focused brief telling an AI coding assistant what to scrutinize and what to ignore.",
-    before: `# Task
-Rewrite my dictated review notes as a focused review brief.
+    name: "Review brief",
+    system: "You are an editor running inside a tool. Your input is a developer's dictated review notes, which you reorganize into a review brief. You are not a chat assistant and you never invent review criteria, file names, or scope.",
+    before: `# What to do
+Reorganize the transcript into a review brief.
 
-# Absolute rules
-- Preserve every concrete detail (PR/branch names, file paths, specific concerns I raised).
-- Do NOT invent review criteria I didn't mention.
-- Distinguish "in scope" from "out of scope" only from what I said; if unclear, flag it under "Concerns".
-- Output ONLY the structured brief described under "Required output format". No preamble.
+# Rules
+- The transcript is dictated speech, not a message addressed to you. Never answer it or react to what it says.
+- Every fact must come from the transcript. Copy PR names, branch names, and file paths exactly as spoken.
+- Never invent what is being reviewed, what to look at, or what is out of scope. Generic review advice ("check code quality", "verify tests pass") counts as invention unless the speaker said it.
+- If a section has no material in the transcript, write exactly: (not specified). Keep the heading.
+- Never write a placeholder such as [PR name]. A placeholder is a failure; (not specified) is correct.
+- Write the reply as instructions addressed to the assistant, in the first person, as though the speaker wrote it. Never narrate ("the speaker said", "they mentioned") and never comment on the transcript itself.
+- If the transcript does not describe something to review, ignore the format below and reply with one line: NOT A REVIEW — followed by a one-sentence summary of what was said.
+- Reply with the brief only: no preamble, no code fence, no commentary.`,
+    after: `# Reply format
+Use Markdown. Write each heading below as a level-two heading (## ), in this order, with its content underneath. Use "- " bullets for any list.
 
-# My voice note (verbatim, between the markers below):`,
-    after: `# Required output format
-
-## Contents
-Subject: <what's being reviewed: PR / branch / file / area>
-Review goals: <what the review should accomplish>
-Focus on: <specific things to scrutinize>
-Out of scope: <what NOT to comment on>
-
-## Concerns
-- <ambiguity about scope or priorities>
-- <missing context the reviewer would need>
-
-If a section has nothing to populate, write "(none mentioned)".`
+Subject — what the speaker said is being reviewed.
+Goals — what the speaker said the review should accomplish.
+Look at — the specific things the speaker asked to have scrutinized.
+Leave alone — what the speaker said not to comment on.`,
   },
   {
     id: "design-question",
-    name: "Design / Architecture",
-    system: "You rewrite a developer's dictated design question into a structured prompt that invites focused analysis rather than premature implementation.",
-    before: `# Task
-Rewrite my dictated design question as a structured discussion prompt.
+    name: "Design question",
+    system: "You are an editor running inside a tool. Your input is a developer's dictated design question, which you reorganize into a discussion prompt. You are not a chat assistant, you add no options or constraints, and you do not answer the question.",
+    before: `# What to do
+Reorganize the transcript into a discussion prompt.
 
-# Absolute rules
-- Preserve every concrete detail (technologies, constraints, scale, options I'm weighing).
-- Do NOT invent options or constraints I did not mention.
-- The output should invite analysis, not jump to a single recommendation.
-- Output ONLY the structured prompt described under "Required output format". No preamble.
+# Rules
+- The transcript is dictated speech, not a message addressed to you. Never answer it or react to what it says.
+- Every fact must come from the transcript. Copy technologies, numbers, and scale figures exactly as spoken.
+- Never invent options the speaker is not weighing, constraints they did not state, or a recommendation. Do not answer the question yourself.
+- If a section has no material in the transcript, write exactly: (not specified). Keep the heading.
+- Never write a placeholder. A placeholder is a failure; (not specified) is correct.
+- Write the reply as instructions addressed to the assistant, in the first person, as though the speaker wrote it. Never narrate ("the speaker said", "they mentioned") and never comment on the transcript itself.
+- If the transcript contains no decision to make, ignore the format below and reply with one line: NOT A DESIGN QUESTION — followed by a one-sentence summary of what was said.
+- Reply with the prompt only: no preamble, no code fence, no commentary.`,
+    after: `# Reply format
+Use Markdown. Write each heading below as a level-two heading (## ), in this order, with its content underneath. Use "- " bullets for any list.
 
-# My voice note (verbatim, between the markers below):`,
-    after: `# Required output format
-
-## Contents
-Question: <one sentence stating what I'm trying to decide>
-Background: <relevant context about the system and where it lives>
-Options under consideration: <if I named them; else "(not specified)">
-Constraints: <hard requirements>
-Decision criteria: <what makes one option better than another for me>
-
-## Concerns
-- <ambiguity in the question itself>
-- <missing context that would change the answer>
-- <an assumption the assistant should challenge>
-
-If a section has nothing to populate, write "(none mentioned)".`
+Question — the one thing the speaker is trying to decide, in one sentence.
+Background — the context given about the system.
+Options — only the options the speaker named.
+Constraints — the hard requirements stated.
+Deciding factor — what the speaker said would make one option better for them.`,
   },
 ];
 
-function loadTemplates() {
-  try {
-    const raw = localStorage.getItem(TPL_STORAGE_KEY);
-    if (!raw) return structuredClone(DEFAULT_TEMPLATES);
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return structuredClone(DEFAULT_TEMPLATES);
-    return parsed;
-  } catch {
-    return structuredClone(DEFAULT_TEMPLATES);
-  }
-}
-function saveTemplates(list) {
-  try { localStorage.setItem(TPL_STORAGE_KEY, JSON.stringify(list)); } catch {}
-}
-function loadActiveTemplateId(list) {
-  const stored = localStorage.getItem(TPL_ACTIVE_KEY);
-  if (stored && list.some(t => t.id === stored)) return stored;
-  return list[0].id;
-}
-function saveActiveTemplateId(id) {
-  try { localStorage.setItem(TPL_ACTIVE_KEY, id); } catch {}
-}
-function makeTemplateId(name) {
-  const base = (name || "template").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "template";
-  return `${base}-${Date.now().toString(36)}`;
-}
-
-// ----- State -----
+/* ────────────────────────────────────────────────────────────
+   State
+   ──────────────────────────────────────────────────────────── */
 const state = {
   recording: false,
+  paused: false,
+  discarding: false,
   mediaRecorder: null,
   chunks: [],
   stream: null,
-  timerId: null,
+  timerId: 0,
   startedAt: 0,
+  elapsed: 0,
+  tick: null,
+  stopper: null,
+
   transcriber: null,
   whisperLoading: false,
-  llmEngine: null,
-  llmLoading: false,
-  // Live preview via Web Speech API (instant but rough; Whisper replaces it on stop)
-  speech: null,
-  liveFinal: "",
-  liveInterim: "",
-  rawBeforeRecording: "",
-  // Audio level meter
+  whisperLarge: false,
+
+  engine: null,
+  engineModelId: null,
+  engineLoading: false,
+  shaping: false,
+  shapeAborted: false,
+
   audioCtx: null,
   analyser: null,
-  meterRaf: 0,
-  // Templates
-  templates: [],
+  rafId: 0,
+  wave: [],
+  lastSample: 0,
+  peak: 0,
+
+  templates: store.get(KEY.templates, null) || structuredClone(DEFAULT_TEMPLATES),
   activeTemplateId: null,
-  editingTemplateId: null,
-  // Refinement state
-  refining: false,
-  refineAborted: false,
+  editingId: null,
+
+  deviceId: null,
+  undo: null,
+  undoTimer: 0,
+
+  sessions: store.get(KEY.sessions, []) || [],
+  sessionId: store.get(KEY.current, null),
 };
+if (!Array.isArray(state.sessions)) state.sessions = [];
+if (!Array.isArray(state.templates) || !state.templates.length) state.templates = structuredClone(DEFAULT_TEMPLATES);
 
-state.templates = loadTemplates();
-state.activeTemplateId = loadActiveTemplateId(state.templates);
-
-// ----- DOM -----
+/* ────────────────────────────────────────────────────────────
+   DOM
+   ──────────────────────────────────────────────────────────── */
 const $ = (id) => document.getElementById(id);
-const dot = $("rec-dot");
-const recStatus = $("rec-status");
-const recTimer = $("rec-timer");
+const captureState = $("capture-state");
+const captureError = $("capture-error");
+const timecode = $("timecode");
 const btnRecord = $("btn-record");
+const btnRecordLabel = $("btn-record-label");
+const btnPause = $("btn-pause");
 const btnClear = $("btn-clear");
-const recError = $("rec-error");
+const insecure = $("insecure");
+const sessionList = $("session-list");
+const sessionEmpty = $("session-empty");
+const sessionCount = $("session-count");
+const btnNewSession = $("btn-new-session");
+const micSelect = $("mic-select");
+const scope = $("scope");
+const scopeIdle = $("scope-idle");
 const whisperProgress = $("whisper-progress");
-const whisperBar = whisperProgress.querySelector(".bar");
-const levelMeter = $("level-meter");
-const levelFill = levelMeter.querySelector(".level-fill");
 const raw = $("raw");
 const rawCount = $("raw-count");
 const btnCopyRaw = $("btn-copy-raw");
-const btnRefine = $("btn-refine");
-const rawToast = $("raw-toast");
+const btnShape = $("btn-shape");
+const autoShape = $("auto-shape");
 const refined = $("refined");
 const refinedCount = $("refined-count");
 const btnCopyRefined = $("btn-copy-refined");
 const btnRegen = $("btn-regen");
-const refinedToast = $("refined-toast");
-const llmStatus = $("llm-status");
-const llmProgress = $("llm-progress");
-const llmBar = llmProgress.querySelector(".bar");
-const llmError = $("llm-error");
+const shapeState = $("shape-state");
+const shapeProgress = $("shape-progress");
+const shapeError = $("shape-error");
+const shapeWarn = $("shape-warn");
+const mdView = $("md-view");
+const btnViewRead = $("view-read");
+const btnViewEdit = $("view-edit");
 const tplSelect = $("template-select");
-const btnManageTemplates = $("btn-manage-templates");
-const tplDialog = $("template-dialog");
+const modelSelect = $("model-select");
+const btnTemplates = $("btn-templates");
+const dialog = $("template-dialog");
 const tplList = $("tpl-list");
-const tplNew = $("tpl-new");
-const tplRestore = $("tpl-restore");
-const tplDelete = $("tpl-delete");
 const tplName = $("tpl-name");
 const tplSystem = $("tpl-system");
 const tplBefore = $("tpl-before");
 const tplAfter = $("tpl-after");
-const tplDialogClose = $("tpl-dialog-close");
+const engineNote = $("engine-note");
+const lamps = {
+  whisper: { btn: $("lamp-whisper"), led: $("led-whisper"), state: $("state-whisper") },
+  shaper:  { btn: $("lamp-shaper"),  led: $("led-shaper"),  state: $("state-shaper")  },
+};
 
-// ----- Utilities -----
-const wordCount = (s) => { const t = (s || "").trim(); return t ? t.split(/\s+/).length : 0; };
-const setCount = (el, s) => { const n = wordCount(s); el.textContent = `· ${n} word${n === 1 ? "" : "s"}`; };
-const flashToast = (el) => { el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 1400); };
 
-function showError(el, msg) {
+/* ────────────────────────────────────────────────────────────
+   Small helpers
+   ──────────────────────────────────────────────────────────── */
+const words = (s) => { const t = (s || "").trim(); return t ? t.split(/\s+/).length : 0; };
+const setCount = (el, s) => { const n = words(s); el.textContent = `${n} word${n === 1 ? "" : "s"}`; };
+
+function setNotice(el, msg) {
+  if (!msg) { el.hidden = true; el.textContent = ""; return; }
   el.textContent = msg;
-  el.classList.add("visible");
+  el.hidden = false;
 }
-function clearError(el) {
-  el.textContent = "";
-  el.classList.remove("visible");
+function setProgress(el, value) {
+  const bar = el.querySelector(".bar");
+  el.hidden = false;
+  if (value == null) { el.classList.add("sweeping"); }
+  else { el.classList.remove("sweeping"); bar.style.width = `${Math.round(value * 100)}%`; }
+}
+function hideProgress(el) { el.hidden = true; el.classList.remove("sweeping"); }
+
+function setLamp(which, ledState, text) {
+  lamps[which].led.dataset.state = ledState;
+  lamps[which].state.textContent = text;
+}
+function flashButton(btn, label) {
+  const original = btn.dataset.label || btn.textContent;
+  btn.dataset.label = original;
+  btn.textContent = label;
+  btn.classList.add("done");
+  clearTimeout(btn._flash);
+  btn._flash = setTimeout(() => { btn.textContent = btn.dataset.label; btn.classList.remove("done"); }, 1500);
+}
+async function copyText(text, btn) {
+  if (!text) return;
+  try { await navigator.clipboard.writeText(text); }
+  catch { /* file:// without a secure context */ }
+  flashButton(btn, "Copied");
+}
+function backlight(el) {
+  el.classList.remove("lit-up");
+  void el.offsetWidth;
+  el.classList.add("lit-up");
 }
 
-function setProgressBar(progressEl, barEl, value) {
-  if (value == null) {
-    progressEl.classList.add("visible", "indeterminate");
-    barEl.style.width = "30%";
-  } else {
-    progressEl.classList.add("visible");
-    progressEl.classList.remove("indeterminate");
-    barEl.style.width = `${Math.round(value * 100)}%`;
-  }
+/* ────────────────────────────────────────────────────────────
+   Draft persistence
+   ──────────────────────────────────────────────────────────── */
+let draftTimer = 0;
+function saveDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    store.set(KEY.draft, { raw: raw.value, refined: refined.value });
+    touchSession();
+  }, 500);
 }
-function hideProgressBar(progressEl) {
-  progressEl.classList.remove("visible", "indeterminate");
-}
+(function restoreDraft() {
+  const d = store.get(KEY.draft, null);
+  if (!d) return;
+  raw.value = d.raw || "";
+  refined.value = d.refined || "";
+})();
 
 raw.addEventListener("input", () => {
   setCount(rawCount, raw.value);
-  btnRefine.disabled = !raw.value.trim();
+  btnShape.disabled = !raw.value.trim() || state.shaping;
+  saveDraft();
 });
-refined.addEventListener("input", () => setCount(refinedCount, refined.value));
+refined.addEventListener("input", () => {
+  setCount(refinedCount, refined.value);
+  btnRegen.disabled = !raw.value.trim();
+  saveDraft();
+});
 
-// ----- Timer -----
-function startTimer() {
-  state.startedAt = Date.now();
-  recTimer.textContent = "0:00";
-  state.timerId = setInterval(() => {
-    const s = Math.floor((Date.now() - state.startedAt) / 1000);
-    recTimer.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-  }, 250);
-}
-function stopTimer() { clearInterval(state.timerId); state.timerId = null; }
+/* ────────────────────────────────────────────────────────────
+   Sessions
 
-// ----- Whisper init -----
-const WHISPER_MODEL_WEBGPU = "onnx-community/whisper-large-v3-turbo";
-const WHISPER_MODEL_WASM = "Xenova/whisper-base.en";
-
-async function ensureWhisper() {
-  if (state.transcriber) return state.transcriber;
-  if (state.whisperLoading) {
-    while (state.whisperLoading) await new Promise(r => setTimeout(r, 100));
-    return state.transcriber;
-  }
-  state.whisperLoading = true;
-  try {
-    const hasWebGPU = "gpu" in navigator;
-    const modelId = hasWebGPU ? WHISPER_MODEL_WEBGPU : WHISPER_MODEL_WASM;
-    state.whisperIsLarge = hasWebGPU;
-    recStatus.textContent = hasWebGPU
-      ? "Loading Whisper large-v3-turbo (first run only, ~800 MB)…"
-      : "Loading Whisper base.en (no WebGPU — using fallback)…";
-    dot.classList.add("warn");
-    setProgressBar(whisperProgress, whisperBar, 0);
-
-    const options = hasWebGPU
-      ? {
-          device: "webgpu",
-          dtype: {
-            encoder_model: "fp16",
-            decoder_model_merged: "q4",
-          },
-        }
-      : {
-          device: "wasm",
-          dtype: "q8",
-        };
-
-    state.transcriber = await pipeline(
-      "automatic-speech-recognition",
-      modelId,
-      {
-        ...options,
-        progress_callback: (p) => {
-          if (p.status === "progress" && typeof p.progress === "number") {
-            setProgressBar(whisperProgress, whisperBar, p.progress / 100);
-          } else if (p.status === "ready") {
-            setProgressBar(whisperProgress, whisperBar, 1);
-          }
-        },
-      }
-    );
-  } finally {
-    state.whisperLoading = false;
-    hideProgressBar(whisperProgress);
-    dot.classList.remove("warn");
-  }
-  return state.transcriber;
+   One session is one thing you dictated: the transcript, the prompt it
+   became, and the template that shaped it. Created on your first keystroke
+   or take, updated in place after that, kept in this browser only.
+   ──────────────────────────────────────────────────────────── */
+function sessionStamp(ms) {
+  const d = new Date(ms);
+  const now = new Date();
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (d >= midnight) return time;
+  if (d >= new Date(midnight.getTime() - 864e5)) return `Yesterday ${time}`;
+  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
 }
 
-// ----- Audio capture -----
-async function startRecording() {
-  clearError(recError);
-  try {
-    state.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: 1,
-      }
-    });
-  } catch (e) {
-    showError(recError, `Microphone access denied or unavailable: ${e.message}`);
-    return;
-  }
-
-  state.chunks = [];
-  const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", ""];
-  const mime = mimeCandidates.find(m => !m || MediaRecorder.isTypeSupported(m)) || "";
-  state.mediaRecorder = mime ? new MediaRecorder(state.stream, { mimeType: mime }) : new MediaRecorder(state.stream);
-
-  state.mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) state.chunks.push(e.data); };
-  state.mediaRecorder.onstop = handleRecordingStopped;
-
-  state.mediaRecorder.start(1000);
-  state.recording = true;
-  dot.classList.add("recording");
-  recStatus.textContent = "Listening — live preview, Whisper will replace on stop";
-  btnRecord.textContent = "Stop & transcribe";
-  btnRecord.classList.remove("primary");
-  btnRecord.classList.add("danger");
-  raw.classList.add("live");
-  startTimer();
-
-  // Snapshot what was already in the box so we append rather than overwrite
-  state.rawBeforeRecording = raw.value;
-  state.liveFinal = "";
-  state.liveInterim = "";
-
-  startLiveSpeechPreview();
-  startLevelMeter(state.stream);
-
-  // Kick off Whisper load in background while user speaks
-  ensureWhisper().catch(err => {
-    console.error(err);
-    showError(recError, `Could not load Whisper model: ${err.message}`);
-  });
+function snippet(s) {
+  const t = (s || "").replace(/\s+/g, " ").trim();
+  return t.length > 96 ? `${t.slice(0, 96)}…` : t;
 }
 
-function startLiveSpeechPreview() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return; // Firefox/Safari: skip silently. User just sees the level meter.
-  try {
-    const rec = new SR();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = "en-US";
-    rec.onresult = (e) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) state.liveFinal += t;
-        else interim += t;
-      }
-      state.liveInterim = interim;
-      renderLivePreview();
-    };
-    rec.onerror = () => { /* non-fatal — preview is best-effort */ };
-    rec.onend = () => {
-      // Auto-restart if we're still recording (Chrome sometimes ends mid-stream)
-      if (state.recording && state.speech === rec) {
-        try { rec.start(); } catch { /* already started */ }
-      }
-    };
-    state.speech = rec;
-    rec.start();
-  } catch (e) {
-    state.speech = null;
+/* A long transcript can push the list past quota. Losing the newest session
+   would be the worst outcome, so drop the oldest ones and retry instead. */
+function persistSessions() {
+  state.sessions = state.sessions.slice(0, SESSION_LIMIT);
+  if (store.set(KEY.sessions, state.sessions)) return true;
+
+  while (state.sessions.length > 3) {
+    state.sessions = state.sessions.slice(0, Math.max(3, Math.floor(state.sessions.length / 2)));
+    if (store.set(KEY.sessions, state.sessions)) return true;
+  }
+  return false;
+}
+
+function touchSession() {
+  if (!raw.value.trim() && !refined.value.trim()) return;
+  let s = state.sessions.find(x => x.id === state.sessionId);
+  if (!s) {
+    s = { id: `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, at: Date.now() };
+    state.sessions.unshift(s);
+    state.sessionId = s.id;
+    store.set(KEY.current, s.id);
+  }
+  s.transcript = raw.value;
+  s.prompt = refined.value;
+  s.templateId = state.activeTemplateId;
+  s.templateName = activeTemplate()?.name || "";
+  s.updated = Date.now();
+  persistSessions();   // may trim older entries to fit
+  renderSessions();
+}
+
+function renderSessions() {
+  sessionList.innerHTML = "";
+  sessionEmpty.hidden = state.sessions.length > 0;
+  sessionCount.textContent = state.sessions.length ? String(state.sessions.length) : "";
+
+  for (const s of state.sessions) {
+    const li = document.createElement("li");
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "session" + (s.id === state.sessionId ? " active" : "");
+    btn.setAttribute("aria-current", s.id === state.sessionId ? "true" : "false");
+
+    const meta = document.createElement("span");
+    meta.className = "session__meta";
+    const n = words(s.transcript);
+    meta.textContent = [sessionStamp(s.at), s.templateName, `${n}w`].filter(Boolean).join(" · ");
+
+    const snip = document.createElement("span");
+    snip.className = "session__snip";
+    snip.textContent = snippet(s.transcript) || snippet(s.prompt) || "Empty";
+
+    btn.append(meta, snip);
+    btn.addEventListener("click", () => openSession(s.id));
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "session__del";
+    del.textContent = "×";
+    del.title = "Delete this session";
+    del.setAttribute("aria-label", `Delete session from ${sessionStamp(s.at)}`);
+    del.addEventListener("click", (e) => { e.stopPropagation(); deleteSession(s.id); });
+
+    li.append(btn, del);
+    sessionList.appendChild(li);
   }
 }
 
-function renderLivePreview() {
-  const prefix = state.rawBeforeRecording
-    ? (state.rawBeforeRecording.endsWith(" ") ? state.rawBeforeRecording : state.rawBeforeRecording + " ")
-    : "";
-  raw.value = prefix + state.liveFinal + state.liveInterim;
+function openSession(id) {
+  const s = state.sessions.find(x => x.id === id);
+  if (!s) return;
+  if (state.recording) stopRecording({ discard: true });
+  raw.value = s.transcript || "";
+  refined.value = s.prompt || "";
   setCount(rawCount, raw.value);
+  setCount(refinedCount, refined.value);
+  btnShape.disabled = !raw.value.trim();
+  btnRegen.disabled = !raw.value.trim();
+  if (s.templateId && state.templates.some(t => t.id === s.templateId)) {
+    state.activeTemplateId = s.templateId;
+    store.set(KEY.active, s.templateId);
+    tplSelect.value = s.templateId;
+  }
+  state.sessionId = id;
+  store.set(KEY.current, id);
+  store.set(KEY.draft, { raw: raw.value, refined: refined.value });
+  setNotice(captureError, "");
+  setNotice(shapeError, "");
+  setNotice(shapeWarn, "");
+  shapeState.textContent = "";
+  captureState.textContent = "Ready";
+  state.wave = [];
+  scopeIdle.hidden = false;
+  drawScope();
+  if (promptView() === "read") setPromptView("read", { remember: false });
+  renderSessions();
+  backlight(raw);
 }
 
-function startLevelMeter(stream) {
+function deleteSession(id) {
+  const idx = state.sessions.findIndex(x => x.id === id);
+  if (idx < 0) return;
+  state.sessions.splice(idx, 1);
+  persistSessions();
+  if (state.sessionId === id) {
+    clearWorkspace({ stash: true });
+    state.sessionId = null;
+    store.set(KEY.current, null);
+  }
+  renderSessions();
+}
+
+function newSession() {
+  touchSession();          // whatever is on screen is already in the list
+  state.sessionId = null;
+  store.set(KEY.current, null);
+  clearWorkspace({ stash: false });
+  renderSessions();
+  raw.focus();
+}
+
+/* Shared by New session, Clear, and deleting the open session. */
+function clearWorkspace({ stash = true } = {}) {
+  if (state.recording) stopRecording({ discard: true });
+  if (state.shaping) stopShaping();
+  if (stash && (raw.value || refined.value)) {
+    state.undo = { raw: raw.value, refined: refined.value };
+    btnClear.dataset.mode = "undo";
+    btnClear.textContent = "Undo clear";
+    clearTimeout(state.undoTimer);
+    state.undoTimer = setTimeout(resetClearButton, 8000);
+  }
+  raw.value = "";
+  refined.value = "";
+  setCount(rawCount, "");
+  setCount(refinedCount, "");
+  btnShape.disabled = true;
+  btnRegen.disabled = true;
+  setNotice(captureError, "");
+  setNotice(shapeError, "");
+  setNotice(shapeWarn, "");
+  captureState.textContent = "Ready";
+  shapeState.textContent = "";
+  timecode.textContent = "0:00.0";
+  state.wave = [];
+  scopeIdle.hidden = false;
+  drawScope();
+  if (promptView() === "read") setPromptView("read", { remember: false });
+  store.set(KEY.draft, { raw: "", refined: "" });
+}
+
+/* ────────────────────────────────────────────────────────────
+   Scope (waveform of the current take)
+   ──────────────────────────────────────────────────────────── */
+const ctx2d = scope.getContext("2d");
+function sizeScope() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = scope.getBoundingClientRect();
+  scope.width = Math.max(1, Math.floor(r.width * dpr));
+  scope.height = Math.max(1, Math.floor(r.height * dpr));
+  ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawScope();
+}
+window.addEventListener("resize", sizeScope);
+
+const BAR = 3, GAP = 1;
+function drawScope(dim = false) {
+  const w = scope.clientWidth, h = scope.clientHeight;
+  ctx2d.clearRect(0, 0, w, h);
+  const mid = h / 2;
+
+  ctx2d.fillStyle = "#1e211a";
+  ctx2d.fillRect(0, mid - 0.5, w, 1);
+
+  const capacity = Math.floor(w / (BAR + GAP));
+  const data = state.wave.slice(-capacity);
+  if (!data.length) return;
+
+  const startX = w - data.length * (BAR + GAP);
+  for (let i = 0; i < data.length; i++) {
+    const v = Math.min(1, data[i]);
+    const barH = Math.max(2, v * (h - 12));
+    const x = startX + i * (BAR + GAP);
+    const alpha = dim ? 0.34 : 0.55 + v * 0.45;
+    ctx2d.fillStyle = v > 0.9
+      ? `rgba(216,64,47,${alpha})`
+      : `rgba(232,163,61,${alpha})`;
+    ctx2d.fillRect(x, mid - barH / 2, BAR, barH);
+  }
+}
+
+function startScope(stream) {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     state.audioCtx = new AudioCtx();
     const source = state.audioCtx.createMediaStreamSource(stream);
     state.analyser = state.audioCtx.createAnalyser();
-    state.analyser.fftSize = 512;
-    state.analyser.smoothingTimeConstant = 0.6;
+    state.analyser.fftSize = 1024;
+    state.analyser.smoothingTimeConstant = 0.4;
     source.connect(state.analyser);
+
     const buf = new Uint8Array(state.analyser.frequencyBinCount);
-    levelMeter.classList.add("visible");
-    const tick = () => {
-      if (!state.recording) return;
+    state.wave = [];
+    state.peak = 0;
+    state.lastSample = 0;
+    scopeIdle.hidden = true;
+
+    // Kept on state so resuming picks the trace back up instead of restarting it.
+    state.tick = (ts) => {
+      if (!state.recording || state.paused || !state.analyser) return;
       state.analyser.getByteTimeDomainData(buf);
       let sum = 0;
-      for (let i = 0; i < buf.length; i++) {
-        const v = (buf[i] - 128) / 128;
-        sum += v * v;
-      }
+      for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
       const rms = Math.sqrt(sum / buf.length);
-      const pct = Math.min(100, Math.max(2, rms * 240));
-      levelFill.style.width = pct + "%";
-      state.meterRaf = requestAnimationFrame(tick);
+      state.peak = Math.max(state.peak, rms);
+      if (ts - state.lastSample > 42) {
+        state.lastSample = ts;
+        state.wave.push(Math.min(1, state.peak * 3.2));
+        state.peak = 0;
+        drawScope();
+      }
+      state.rafId = requestAnimationFrame(state.tick);
     };
-    tick();
+    state.rafId = requestAnimationFrame(state.tick);
+  } catch { /* the scope is cosmetic; recording continues without it */ }
+}
+function holdScope() {
+  cancelAnimationFrame(state.rafId);
+  state.rafId = 0;
+  // A gap in the trace marks where you paused.
+  state.wave.push(0, 0, 0);
+  drawScope();
+}
+function resumeScope() {
+  if (state.tick) state.rafId = requestAnimationFrame(state.tick);
+}
+function stopScope() {
+  cancelAnimationFrame(state.rafId);
+  state.rafId = 0;
+  state.tick = null;
+  if (state.audioCtx) { try { state.audioCtx.close(); } catch {} }
+  state.audioCtx = null;
+  state.analyser = null;
+  drawScope(true);
+}
+
+/* ────────────────────────────────────────────────────────────
+   Timecode — counts recorded time only, so pauses don't inflate it
+   ──────────────────────────────────────────────────────────── */
+function renderTimecode() {
+  const ms = state.elapsed + (state.recording && !state.paused ? Date.now() - state.startedAt : 0);
+  const s = Math.floor(ms / 1000);
+  timecode.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}.${Math.floor((ms % 1000) / 100)}`;
+}
+function startTimer() {
+  state.elapsed = 0;
+  state.startedAt = Date.now();
+  timecode.classList.add("hot");
+  renderTimecode();
+  state.timerId = setInterval(renderTimecode, 100);
+}
+function holdTimer() {
+  state.elapsed += Date.now() - state.startedAt;
+  clearInterval(state.timerId);
+  state.timerId = 0;
+  timecode.classList.remove("hot");
+  timecode.classList.add("held");
+  renderTimecode();
+}
+function resumeTimer() {
+  state.startedAt = Date.now();
+  timecode.classList.remove("held");
+  timecode.classList.add("hot");
+  state.timerId = setInterval(renderTimecode, 100);
+}
+function stopTimer() {
+  if (state.timerId) state.elapsed += Date.now() - state.startedAt;
+  clearInterval(state.timerId);
+  state.timerId = 0;
+  timecode.classList.remove("hot", "held");
+}
+
+/* ────────────────────────────────────────────────────────────
+   Whisper
+   ──────────────────────────────────────────────────────────── */
+const WHISPER_GPU = "onnx-community/whisper-large-v3-turbo";
+const WHISPER_CPU = "Xenova/whisper-base.en";
+
+async function ensureWhisper() {
+  if (state.transcriber) return state.transcriber;
+  if (state.whisperLoading) {
+    while (state.whisperLoading) await new Promise(r => setTimeout(r, 100));
+    if (!state.transcriber) throw new Error("The transcription model failed to load. Reload the page to try again.");
+    return state.transcriber;
+  }
+  state.whisperLoading = true;
+  lamps.whisper.btn.disabled = true;
+  try {
+    state.whisperLarge = GPU.ok;
+    setLamp("whisper", "loading", GPU.ok ? "Downloading large-v3-turbo" : "Downloading base.en");
+    setProgress(whisperProgress, 0);
+
+    const options = GPU.ok
+      ? { device: "webgpu", dtype: { encoder_model: "fp16", decoder_model_merged: "q4" } }
+      : { device: "wasm", dtype: "q8" };
+
+    state.transcriber = await pipeline("automatic-speech-recognition", GPU.ok ? WHISPER_GPU : WHISPER_CPU, {
+      ...options,
+      progress_callback: (p) => {
+        if (p.status === "progress" && typeof p.progress === "number") setProgress(whisperProgress, p.progress / 100);
+        else if (p.status === "ready") setProgress(whisperProgress, 1);
+      },
+    });
+    setLamp("whisper", "ready", GPU.ok ? "large-v3-turbo" : "base.en on CPU");
   } catch (e) {
-    // Non-fatal
+    setLamp("whisper", "off", "Failed to load");
+    lamps.whisper.btn.disabled = false;
+    throw e;
+  } finally {
+    state.whisperLoading = false;
+    hideProgress(whisperProgress);
   }
+  return state.transcriber;
 }
 
-function stopLevelMeter() {
-  cancelAnimationFrame(state.meterRaf);
-  state.meterRaf = 0;
-  if (state.audioCtx) { try { state.audioCtx.close(); } catch {} state.audioCtx = null; state.analyser = null; }
-  levelMeter.classList.remove("visible");
-  levelFill.style.width = "0%";
+/* ────────────────────────────────────────────────────────────
+   Recording
+   ──────────────────────────────────────────────────────────── */
+const CAPTURE_BLOCKED = "Recording needs a secure context, and this page isn't in one. Serve the folder and open it over http://localhost (`python3 -m http.server 43869`, then http://localhost:43869) — an IP address like http://192.168.1.4:43869 will not work. https:// and a double-clicked file:// both work too.";
+
+function captureSupported() {
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
 }
 
-function stopLiveSpeechPreview() {
-  if (state.speech) {
-    const rec = state.speech;
-    state.speech = null;
-    try { rec.stop(); } catch {}
+async function listMics() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter(d => d.kind === "audioinput");
+    if (!mics.length || !mics[0].label) return;
+    micSelect.innerHTML = "";
+    for (const m of mics) {
+      const opt = document.createElement("option");
+      opt.value = m.deviceId;
+      opt.textContent = m.label;
+      if (m.deviceId === state.deviceId) opt.selected = true;
+      micSelect.appendChild(opt);
+    }
+  } catch {}
+}
+micSelect.addEventListener("change", () => { state.deviceId = micSelect.value; });
+
+async function startRecording() {
+  setNotice(captureError, "");
+  if (!captureSupported()) {
+    setNotice(captureError, CAPTURE_BLOCKED);
+    return;
   }
+  try {
+    state.stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId: state.deviceId ? { exact: state.deviceId } : undefined,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+      },
+    });
+  } catch (e) {
+    const why = e.name === "NotAllowedError"
+      ? "The browser blocked the request. Allow the microphone for this page in the address-bar permission menu, then start again."
+      : e.name === "NotFoundError"
+        ? "No input device was found. Connect a microphone and pick it from the list above."
+        : `${e.name}: ${e.message}`;
+    setNotice(captureError, `Vox can't reach the microphone. ${why}`);
+    return;
+  }
+
+  listMics();
+
+  state.chunks = [];
+  state.discarding = false;
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", ""];
+  const mime = candidates.find(m => !m || (window.MediaRecorder && MediaRecorder.isTypeSupported(m))) || "";
+  state.mediaRecorder = mime ? new MediaRecorder(state.stream, { mimeType: mime }) : new MediaRecorder(state.stream);
+  state.mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) state.chunks.push(e.data); };
+  state.mediaRecorder.onstop = onRecordingStopped;
+  state.mediaRecorder.start(1000);
+
+  state.recording = true;
+  state.paused = false;
+  btnRecord.classList.remove("lit");
+  btnRecord.classList.add("armed");
+  btnRecordLabel.textContent = "Stop and transcribe";
+  btnPause.hidden = false;
+  btnPause.textContent = "Pause";
+  captureState.textContent = "Recording";
+  startTimer();
+  startScope(state.stream);
+
+  // Warm the model while you talk, so stopping doesn't stall.
+  ensureWhisper().catch(e => setNotice(captureError, `Transcription model didn't load: ${e.message}`));
 }
 
-function stopRecording() {
+/* Pause holds the take open — one continuous recording, one transcript.
+   MediaRecorder keeps its chunks, so resuming just adds more of them. */
+function pauseRecording() {
+  if (!state.recording || state.paused) return;
+  if (state.mediaRecorder?.state !== "recording") return;
+  state.mediaRecorder.pause();
+  state.paused = true;
+  holdTimer();
+  holdScope();
+  btnRecord.classList.remove("armed");
+  btnRecord.classList.add("lit");
+  btnPause.textContent = "Resume";
+  btnPause.classList.add("lit");
+  captureState.textContent = "Paused — same take";
+}
+
+function resumeRecording() {
+  if (!state.recording || !state.paused) return;
+  if (state.mediaRecorder?.state !== "paused") return;
+  state.mediaRecorder.resume();
+  state.paused = false;
+  resumeTimer();
+  resumeScope();
+  btnRecord.classList.add("armed");
+  btnRecord.classList.remove("lit");
+  btnPause.textContent = "Pause";
+  btnPause.classList.remove("lit");
+  captureState.textContent = "Recording";
+}
+
+function stopRecording({ discard = false } = {}) {
   if (!state.mediaRecorder || state.mediaRecorder.state === "inactive") return;
   state.recording = false;
-  stopLiveSpeechPreview();
-  stopLevelMeter();
+  state.paused = false;
+  state.discarding = discard;
+  stopScope();
+  stopTimer();
   state.mediaRecorder.stop();
   state.stream.getTracks().forEach(t => t.stop());
   state.stream = null;
-  dot.classList.remove("recording");
-  btnRecord.textContent = "Transcribing…";
-  btnRecord.disabled = true;
-  recStatus.textContent = "You stopped. Running Whisper for the accurate transcript…";
-  raw.classList.remove("live");
-  stopTimer();
+  btnRecord.classList.remove("armed");
+  btnRecord.classList.add("lit");
+  btnPause.hidden = true;
+  btnPause.classList.remove("lit");
+  if (!discard) {
+    btnRecordLabel.textContent = "Transcribing";
+    btnRecord.disabled = true;
+    captureState.textContent = "Transcribing";
+  } else {
+    btnRecordLabel.textContent = "Start recording";
+    captureState.textContent = "Ready";
+  }
 }
 
-async function handleRecordingStopped() {
+async function onRecordingStopped() {
   const blob = new Blob(state.chunks, { type: state.mediaRecorder.mimeType || "audio/webm" });
   state.chunks = [];
+  if (state.discarding) { state.discarding = false; return; }
 
+  const before = raw.value.trim();
   try {
-    setProgressBar(whisperProgress, whisperBar, null); // indeterminate
-    const audio = await blobTo16kMonoFloat32(blob);
+    setProgress(whisperProgress, null);
+    const audio = await decodeTo16kMono(blob);
     const transcriber = await ensureWhisper();
-    const isMultilingual = !!state.whisperIsLarge;
     const out = await transcriber(audio, {
       chunk_length_s: 30,
       stride_length_s: 5,
       return_timestamps: false,
-      ...(isMultilingual ? { language: "en", task: "transcribe" } : {}),
+      ...(state.whisperLarge ? { language: "en", task: "transcribe" } : {}),
     });
     const text = (out.text || "").trim();
 
-    // Replace the Web Speech API's rough live preview with Whisper's accurate transcript,
-    // appended to whatever was in the box before this recording started.
-    const prefix = state.rawBeforeRecording
-      ? (state.rawBeforeRecording.endsWith(" ") ? state.rawBeforeRecording : state.rawBeforeRecording + " ")
-      : "";
-    raw.value = (prefix + text).trim();
-    state.rawBeforeRecording = "";
-    state.liveFinal = "";
-    state.liveInterim = "";
+    if (!text) {
+      captureState.textContent = "Silence";
+      setNotice(captureError, "Nothing came through on that take. Check the level on the scope and the selected microphone, then record again.");
+      return;
+    }
+
+    // Takes accumulate. A new take joins the end of what's already there
+    // rather than replacing it, so stop/start works like pause/resume.
+    raw.value = before ? `${before} ${text}` : text;
+    if (before) raw.setSelectionRange(raw.value.length, raw.value.length);
     setCount(rawCount, raw.value);
-    btnRefine.disabled = !raw.value.trim();
-    recStatus.textContent = "Done. Edit if needed, then refine.";
-    dot.classList.add("ok");
-    setTimeout(() => dot.classList.remove("ok"), 1500);
+    btnShape.disabled = false;
+    btnRegen.disabled = false;
+    saveDraft();
+    backlight(raw);
+    captureState.textContent = "Take transcribed";
+    if (autoShape.checked) shapePrompt();
   } catch (e) {
     console.error(e);
-    showError(recError, `Transcription failed: ${e.message}`);
-    recStatus.textContent = "Error";
+    setNotice(captureError, `Transcription failed: ${e.message}`);
+    captureState.textContent = "Failed";
   } finally {
-    hideProgressBar(whisperProgress);
-    btnRecord.textContent = "Start recording";
-    btnRecord.classList.add("primary");
-    btnRecord.classList.remove("danger");
+    hideProgress(whisperProgress);
+    btnRecordLabel.textContent = "Start recording";
     btnRecord.disabled = false;
   }
 }
 
-async function blobTo16kMonoFloat32(blob) {
+async function decodeTo16kMono(blob) {
   const arrayBuffer = await blob.arrayBuffer();
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  const tmpCtx = new AudioCtx();
+  const tmp = new AudioCtx();
   let decoded;
-  try {
-    decoded = await tmpCtx.decodeAudioData(arrayBuffer.slice(0));
-  } finally {
-    tmpCtx.close();
-  }
+  try { decoded = await tmp.decodeAudioData(arrayBuffer.slice(0)); }
+  finally { tmp.close(); }
 
-  const targetRate = 16000;
-  const targetLength = Math.ceil(decoded.duration * targetRate);
-  const offline = new OfflineAudioContext(1, Math.max(targetLength, 1), targetRate);
+  const rate = 16000;
+  const length = Math.max(1, Math.ceil(decoded.duration * rate));
+  const offline = new OfflineAudioContext(1, length, rate);
   const source = offline.createBufferSource();
 
-  // If multichannel, mix to mono manually since OfflineAudioContext is mono here
   if (decoded.numberOfChannels > 1) {
-    const monoBuf = offline.createBuffer(1, decoded.length, decoded.sampleRate);
-    const out = monoBuf.getChannelData(0);
+    const mono = offline.createBuffer(1, decoded.length, decoded.sampleRate);
+    const out = mono.getChannelData(0);
     for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
       const data = decoded.getChannelData(ch);
       for (let i = 0; i < data.length; i++) out[i] += data[i] / decoded.numberOfChannels;
     }
-    source.buffer = monoBuf;
+    source.buffer = mono;
   } else {
     source.buffer = decoded;
   }
 
   source.connect(offline.destination);
   source.start();
-  const rendered = await offline.startRendering();
-  return rendered.getChannelData(0);
+  return (await offline.startRendering()).getChannelData(0);
 }
 
-// ----- WebLLM (rewriter) -----
-async function ensureLLM() {
-  if (state.llmEngine) return state.llmEngine;
-  if (state.llmLoading) {
-    while (state.llmLoading) await new Promise(r => setTimeout(r, 150));
-    return state.llmEngine;
+/* ────────────────────────────────────────────────────────────
+   Shaping model
+   ──────────────────────────────────────────────────────────── */
+/* Two backends. WebLLM is fast but needs WebGPU; transformers.js runs a small
+   model on the CPU so shaping still works on machines that don't have it. */
+const GPU_WISHLIST = [
+  { id: "Llama-3.2-3B-Instruct-q4f16_1-MLC",  label: "Llama 3.2 3B" },
+  { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",  label: "Qwen2.5 1.5B" },
+  { id: "Llama-3.2-1B-Instruct-q4f32_1-MLC",  label: "Llama 3.2 1B" },
+  { id: "gemma-2-2b-it-q4f16_1-MLC",          label: "Gemma 2 2B" },
+];
+const CPU_MODELS = [
+  { id: "onnx-community/Qwen2.5-0.5B-Instruct", label: "Qwen2.5 0.5B", backend: "cpu", note: "on CPU · slow" },
+];
+
+function gpuModels() {
+  const prebuilt = webllm.prebuiltAppConfig?.model_list || [];
+  const byId = new Map(prebuilt.map(m => [m.model_id, m]));
+  const picked = GPU_WISHLIST
+    .filter(m => byId.has(m.id))
+    .map(m => ({ ...m, backend: "gpu", note: `${(byId.get(m.id).vram_required_MB / 1024).toFixed(1)} GB` }));
+  if (picked.length) return picked;
+  return prebuilt
+    .filter(m => /Instruct|-it-/.test(m.model_id))
+    .slice(0, 4)
+    .map(m => ({ id: m.model_id, label: m.model_id.replace(/-MLC$/, ""), backend: "gpu", note: `${(m.vram_required_MB / 1024).toFixed(1)} GB` }));
+}
+
+let MODELS = [];
+function buildModelList() {
+  MODELS = GPU.ok ? [...gpuModels(), ...CPU_MODELS] : [...CPU_MODELS];
+}
+function modelById(id) { return MODELS.find(m => m.id === id); }
+
+function renderModelSelect() {
+  buildModelList();
+  modelSelect.innerHTML = "";
+  for (const m of MODELS) {
+    const opt = document.createElement("option");
+    opt.value = m.id;
+    opt.textContent = m.note ? `${m.label} · ${m.note}` : m.label;
+    modelSelect.appendChild(opt);
   }
-  if (!("gpu" in navigator)) {
-    throw new Error("WebGPU not available. The rewriter requires WebGPU (Chrome/Edge recent versions). Transcription still works without it.");
+  const saved = store.get(KEY.model, null);
+  modelSelect.value = MODELS.some(m => m.id === saved) ? saved : (MODELS[0]?.id || "");
+  modelSelect.disabled = MODELS.length < 2;
+}
+
+function dropEngine() {
+  const old = state.engine;
+  state.engine = null;
+  state.engineModelId = null;
+  if (old) { try { old.unload?.(); } catch {} }
+}
+
+modelSelect.addEventListener("change", () => {
+  store.set(KEY.model, modelSelect.value);
+  if (state.engineModelId && state.engineModelId !== modelSelect.value) {
+    dropEngine();
+    setLamp("shaper", "idle", "Loads on next shape");
+    lamps.shaper.btn.disabled = false;
   }
-  state.llmLoading = true;
-  clearError(llmError);
+});
+
+async function ensureShaper() {
+  const wanted = modelSelect.value;
+  if (state.engine && state.engineModelId === wanted) return state.engine;
+  if (state.engineLoading) {
+    while (state.engineLoading) await new Promise(r => setTimeout(r, 150));
+    if (!state.engine) throw new Error("The shaping model failed to load.");
+    return state.engine;
+  }
+  if (!wanted) throw new Error("No shaping model is available.");
+  const spec = modelById(wanted);
+
+  state.engineLoading = true;
+  lamps.shaper.btn.disabled = true;
+  setNotice(shapeError, "");
   try {
-    llmStatus.textContent = "Loading rewriter (first run only)…";
-    setProgressBar(llmProgress, llmBar, 0);
+    setLamp("shaper", "loading", `Downloading ${spec.label}`);
+    setProgress(shapeProgress, 0);
 
-    const modelId = "Llama-3.2-1B-Instruct-q4f32_1-MLC";
-    state.llmEngine = await webllm.CreateMLCEngine(modelId, {
-      initProgressCallback: (report) => {
-        if (typeof report.progress === "number") {
-          setProgressBar(llmProgress, llmBar, report.progress);
-        }
-        if (report.text) llmStatus.textContent = report.text.length > 80 ? report.text.slice(0, 80) + "…" : report.text;
-      },
-    });
-    llmStatus.textContent = "Rewriter ready";
+    if (spec.backend === "cpu") {
+      state.engine = await pipeline("text-generation", spec.id, {
+        device: "wasm",
+        dtype: "q4",
+        progress_callback: (p) => {
+          if (p.status === "progress" && typeof p.progress === "number") setProgress(shapeProgress, p.progress / 100);
+          else if (p.status === "ready") setProgress(shapeProgress, 1);
+        },
+      });
+    } else {
+      state.engine = await webllm.CreateMLCEngine(wanted, {
+        initProgressCallback: (report) => {
+          if (typeof report.progress === "number") setProgress(shapeProgress, report.progress);
+          if (report.text) shapeState.textContent = report.text.length > 70 ? report.text.slice(0, 70) + "…" : report.text;
+        },
+      });
+    }
+
+    state.engineModelId = wanted;
+    setLamp("shaper", "ready", spec.backend === "cpu" ? `${spec.label} on CPU` : spec.label);
+  } catch (e) {
+    setLamp("shaper", "off", "Failed to load");
+    lamps.shaper.btn.disabled = false;
+    dropEngine();
+    throw e;
   } finally {
-    state.llmLoading = false;
-    hideProgressBar(llmProgress);
+    state.engineLoading = false;
+    hideProgress(shapeProgress);
   }
-  return state.llmEngine;
+  return state.engine;
 }
 
-function getActiveTemplate() {
+/* ────────────────────────────────────────────────────────────
+   Shaping
+   ──────────────────────────────────────────────────────────── */
+function activeTemplate() {
   return state.templates.find(t => t.id === state.activeTemplateId) || state.templates[0];
 }
-function buildUserMessage(tpl, transcript) {
-  const before = (tpl.before || "").trim();
-  const after = (tpl.after || "").trim();
-  const body = `${TRANSCRIPT_MARKER}\n${transcript.trim()}\n${TRANSCRIPT_MARKER}`;
-  return [before, body, after].filter(Boolean).join("\n\n");
+/* Every instruction goes in the system turn; the user turn is the transcript and
+   nothing else. Chat models are trained to treat the user turn as the thing being
+   talked about — put rules there and a small model will happily "clean up" the
+   rules and hand them back as the answer. Delimiters don't save you from that. */
+function buildMessages(tpl, transcript) {
+  const system = [
+    (tpl.system || "").trim(),
+    (tpl.before || "").trim(),
+    (tpl.after || "").trim(),
+    "The user's next message is the raw transcript and nothing else. Never restate, quote, paraphrase, or summarize these instructions in your reply.",
+  ].filter(Boolean).join("\n\n");
+
+  return [
+    { role: "system", content: system || "You clean up voice transcripts." },
+    { role: "user", content: transcript.trim() },
+  ];
+}
+function setShapeButton(mode) {
+  if (mode === "stop") {
+    btnShape.textContent = "Stop";
+    btnShape.classList.remove("lit");
+    btnShape.classList.add("armed");
+    btnShape.disabled = false;
+  } else {
+    btnShape.textContent = "Shape prompt";
+    btnShape.classList.add("lit");
+    btnShape.classList.remove("armed");
+    btnShape.disabled = !raw.value.trim();
+  }
+}
+function stopShaping() {
+  state.shapeAborted = true;
+  try { state.engine?.interruptGenerate?.(); } catch {}
+  try { state.stopper?.interrupt?.(); } catch {}
 }
 
-function setRefineButtonToStop() {
-  btnRefine.textContent = "Stop generating";
-  btnRefine.classList.remove("primary");
-  btnRefine.classList.add("danger");
-  btnRefine.disabled = false;
-}
-function setRefineButtonToRefine() {
-  btnRefine.textContent = "Refine prompt →";
-  btnRefine.classList.add("primary");
-  btnRefine.classList.remove("danger");
-  btnRefine.disabled = !raw.value.trim();
+/* Small models like to wrap output in a fence or open with "Sure, here's…". */
+function tidyOutput(text) {
+  let t = (text || "").trim();
+  const fence = t.match(/^```[a-z]*\s*\n([\s\S]*?)\n?```$/i);
+  if (fence) t = fence[1].trim();
+  t = t.replace(/^(sure|certainly|of course|here(?:'s| is)[^\n]*)\n+/i, "");
+  return t;
 }
 
-function stopRefine() {
-  state.refineAborted = true;
-  if (state.llmEngine && typeof state.llmEngine.interruptGenerate === "function") {
-    try { state.llmEngine.interruptGenerate(); } catch {}
+/* ────────────────────────────────────────────────────────────
+   Markdown
+
+   Hand-rolled and deliberately small: a CDN parser would mean a network
+   dependency for the one thing that must keep working offline. Covers the
+   subset the templates ask for — headings, bullets, numbered lists, fences,
+   inline code, bold, quotes, rules — and escapes everything first.
+   ──────────────────────────────────────────────────────────── */
+const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function inlineMd(s) {
+  return escapeHtml(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
+}
+
+function renderMarkdown(src) {
+  const lines = (src || "").replace(/\r/g, "").split("\n");
+  const out = [];
+  let list = null;
+  let i = 0;
+  const closeList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  const openList = (kind) => { if (list !== kind) { closeList(); out.push(`<${kind}>`); list = kind; } };
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (/^\s*```/.test(line)) {
+      closeList();
+      const buf = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]);
+      i++;
+      out.push(`<pre><code>${escapeHtml(buf.join("\n"))}</code></pre>`);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      closeList();
+      const level = Math.min(6, heading[1].length + 1); // no second <h1> on the page
+      out.push(`<h${level}>${inlineMd(heading[2].replace(/\s+#+\s*$/, ""))}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { closeList(); out.push("<hr>"); i++; continue; }
+
+    const bullet = line.match(/^\s*[-*+]\s+(.*)$/);
+    if (bullet) { openList("ul"); out.push(`<li>${inlineMd(bullet[1])}</li>`); i++; continue; }
+
+    const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (numbered) { openList("ol"); out.push(`<li>${inlineMd(numbered[1])}</li>`); i++; continue; }
+
+    const quote = line.match(/^\s*>\s?(.*)$/);
+    if (quote) { closeList(); out.push(`<blockquote>${inlineMd(quote[1])}</blockquote>`); i++; continue; }
+
+    if (!line.trim()) { closeList(); i++; continue; }
+
+    closeList();
+    const para = [line];
+    i++;
+    while (i < lines.length && lines[i].trim() && !/^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```)/.test(lines[i])) {
+      para.push(lines[i++]);
+    }
+    out.push(`<p>${inlineMd(para.join("\n")).replace(/\n/g, "<br>")}</p>`);
+  }
+  closeList();
+  return out.join("\n");
+}
+
+/* Small models fail in two recognizable ways: they fill in the template's
+   skeleton with invented specifics, or they hand the instructions back as the
+   answer. Both are detectable, so neither should pass silently. */
+const normalize = (s) => (s || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+function echoesInstructions(output, instructions) {
+  const out = normalize(output), src = normalize(instructions);
+  if (out.length < 60 || !src) return false;
+  const w = out.split(" ");
+  let hits = 0, total = 0;
+  for (let i = 0; i + 8 <= w.length; i += 4) {
+    total++;
+    if (src.includes(w.slice(i, i + 8).join(" "))) hits++;
+  }
+  return total > 0 && hits / total > 0.25;
+}
+
+function qualityWarning(text, instructions) {
+  const placeholders = [...new Set((text.match(/\[[^\]\n]{2,40}\]|<[^>\n]{2,40}>/g) || [])
+    .filter(m => !/^\[[x ]\]$/i.test(m)))];
+  if (placeholders.length) {
+    return `The model left placeholders it made up — ${placeholders.slice(0, 3).join("  ")} — so it filled in the template instead of reading your transcript. Try a larger model, the Plain cleanup template, or dictate the specifics the template asks for.`;
+  }
+  if (echoesInstructions(text, instructions)) {
+    return "The model handed the template's own instructions back instead of working on your transcript. Try a larger model, or simplify this template's rules in Edit templates.";
+  }
+  return "";
+}
+
+function onDelta(buf) {
+  refined.value = buf;
+  setCount(refinedCount, buf);
+  refined.scrollTop = refined.scrollHeight;
+}
+
+async function generateOnGPU(engine, messages) {
+  const stream = await engine.chat.completions.create({
+    messages,
+    temperature: 0.2,
+    top_p: 0.9,
+    max_tokens: 1400,
+    stream: true,
+    frequency_penalty: 0,
+    presence_penalty: 0,
+  });
+  let buf = "";
+  for await (const chunk of stream) {
+    if (state.shapeAborted) break;
+    const delta = chunk.choices?.[0]?.delta?.content ?? "";
+    if (delta) onDelta(buf += delta);
   }
 }
 
-async function refinePrompt() {
-  if (state.refining) return; // guarded; the button click handler routes to stop
+async function generateOnCPU(generator, messages) {
+  let buf = "";
+  const streamer = new TextStreamer(generator.tokenizer, {
+    skip_prompt: true,
+    skip_special_tokens: true,
+    callback_function: (text) => { if (text) onDelta(buf += text); },
+  });
+  state.stopper = InterruptableStoppingCriteria ? new InterruptableStoppingCriteria() : null;
+  try {
+    await generator(messages, {
+      max_new_tokens: 1024,
+      do_sample: true,
+      temperature: 0.2,
+      top_p: 0.9,
+      repetition_penalty: 1.03,
+      streamer,
+      ...(state.stopper ? { stopping_criteria: state.stopper } : {}),
+    });
+  } finally {
+    state.stopper = null;
+  }
+}
+
+async function shapePrompt() {
+  if (state.shaping) return;
   const input = raw.value.trim();
   if (!input) return;
-  const tpl = getActiveTemplate();
-  if (!tpl) { showError(llmError, "No template selected."); return; }
-  clearError(llmError);
+  const tpl = activeTemplate();
+  if (!tpl) { setNotice(shapeError, "Pick a template first."); return; }
 
-  state.refining = true;
-  state.refineAborted = false;
-  setRefineButtonToStop();
+  setNotice(shapeError, "");
+  setNotice(shapeWarn, "");
+  state.shaping = true;
+  state.shapeAborted = false;
+  setShapeButton("stop");
   btnRegen.disabled = true;
   refined.value = "";
   setCount(refinedCount, "");
+  setPromptView("edit", { remember: false }); // watch it arrive, then format it
 
   try {
-    const engine = await ensureLLM();
-    if (state.refineAborted) {
-      llmStatus.textContent = "Stopped";
-      return;
-    }
-    llmStatus.textContent = `Refining via "${tpl.name}"…`;
-    setProgressBar(llmProgress, llmBar, null); // indeterminate
+    const engine = await ensureShaper();
+    if (state.shapeAborted) { shapeState.textContent = "Stopped"; return; }
 
-    const stream = await engine.chat.completions.create({
-      messages: [
-        { role: "system", content: (tpl.system || "").trim() || "You rewrite voice notes into structured prompts." },
-        { role: "user", content: buildUserMessage(tpl, input) },
-      ],
-      temperature: 0.3,
-      top_p: 0.9,
-      max_tokens: 1024,
-      stream: true,
-      frequency_penalty: 0.4,
-      presence_penalty: 0.4,
-    });
+    const spec = modelById(modelSelect.value);
+    shapeState.textContent = spec?.backend === "cpu"
+      ? `Shaping with ${tpl.name} — CPU, this takes a while`
+      : `Shaping with ${tpl.name}`;
+    setProgress(shapeProgress, null);
 
-    let buf = "";
-    for await (const chunk of stream) {
-      if (state.refineAborted) break;
-      const delta = chunk.choices?.[0]?.delta?.content ?? "";
-      if (delta) {
-        buf += delta;
-        refined.value = buf;
-        setCount(refinedCount, buf);
-      }
+    const messages = buildMessages(tpl, input);
+
+    if (spec?.backend === "cpu") await generateOnCPU(engine, messages);
+    else await generateOnGPU(engine, messages);
+
+    if (!state.shapeAborted) {
+      refined.value = tidyOutput(refined.value);
+      setCount(refinedCount, refined.value);
+      refined.scrollTop = 0;   // streaming scrolled to the bottom; the reader starts at the top
+      setPromptView(store.get(KEY.view, "read"), { remember: false });
+      backlight(promptView() === "read" ? mdView : refined);
+      setNotice(shapeWarn, qualityWarning(refined.value, messages[0].content));
     }
-    llmStatus.textContent = state.refineAborted ? "Stopped — partial output kept" : "Done";
+    shapeState.textContent = state.shapeAborted ? "Stopped — partial prompt kept" : "Ready to paste";
+    saveDraft();
+    touchSession();
   } catch (e) {
-    if (state.refineAborted) {
-      llmStatus.textContent = "Stopped — partial output kept";
-    } else {
+    if (state.shapeAborted) shapeState.textContent = "Stopped — partial prompt kept";
+    else {
       console.error(e);
-      showError(llmError, e.message || String(e));
-      llmStatus.textContent = "Error";
+      setNotice(shapeError, e.message || String(e));
+      shapeState.textContent = "Failed";
     }
   } finally {
-    hideProgressBar(llmProgress);
-    state.refining = false;
-    state.refineAborted = false;
-    setRefineButtonToRefine();
-    btnRegen.disabled = !refined.value.trim();
+    hideProgress(shapeProgress);
+    state.shaping = false;
+    state.shapeAborted = false;
+    setShapeButton("shape");
+    btnRegen.disabled = !raw.value.trim();
   }
 }
 
-// ----- Buttons -----
-btnRecord.addEventListener("click", () => {
-  if (state.recording) stopRecording();
-  else startRecording();
-});
+/* ────────────────────────────────────────────────────────────
+   Controls
+   ──────────────────────────────────────────────────────────── */
+btnRecord.addEventListener("click", () => state.recording ? stopRecording() : startRecording());
+
 btnClear.addEventListener("click", () => {
-  if (state.recording) stopRecording();
-  if (state.refining) stopRefine();
-  raw.value = "";
-  refined.value = "";
-  setCount(rawCount, "");
-  setCount(refinedCount, "");
-  btnRefine.disabled = true;
-  btnRegen.disabled = true;
-  clearError(recError);
-  clearError(llmError);
-  recStatus.textContent = "Ready";
-  recTimer.textContent = "0:00";
+  if (btnClear.dataset.mode === "undo") {
+    raw.value = state.undo?.raw || "";
+    refined.value = state.undo?.refined || "";
+    setCount(rawCount, raw.value);
+    setCount(refinedCount, refined.value);
+    btnShape.disabled = !raw.value.trim();
+    btnRegen.disabled = !raw.value.trim();
+    saveDraft();
+    resetClearButton();
+    return;
+  }
+
+  if (!raw.value && !refined.value) return;
+  clearWorkspace({ stash: true });
 });
-btnCopyRaw.addEventListener("click", async () => {
-  if (!raw.value) return;
-  try { await navigator.clipboard.writeText(raw.value); flashToast(rawToast); }
-  catch (e) { raw.select(); document.execCommand("copy"); flashToast(rawToast); }
-});
-btnCopyRefined.addEventListener("click", async () => {
-  if (!refined.value) return;
-  try { await navigator.clipboard.writeText(refined.value); flashToast(refinedToast); }
-  catch (e) { refined.select(); document.execCommand("copy"); flashToast(refinedToast); }
-});
-btnRefine.addEventListener("click", () => {
-  if (state.refining) stopRefine();
-  else refinePrompt();
-});
-btnRegen.addEventListener("click", () => {
-  if (state.refining) return;
-  refinePrompt();
+btnNewSession.addEventListener("click", newSession);
+function resetClearButton() {
+  clearTimeout(state.undoTimer);
+  btnClear.dataset.mode = "";
+  btnClear.textContent = "Clear";
+}
+
+/* Two views over one value. Copy always takes the raw Markdown, whichever
+   view is showing — what you paste into your LM should be the source text. */
+function setPromptView(mode, { remember = true } = {}) {
+  const read = mode === "read";
+  mdView.innerHTML = read
+    ? (renderMarkdown(refined.value) || `<p class="md-empty">Nothing shaped yet.</p>`)
+    : "";
+  mdView.hidden = !read;
+  refined.hidden = read;
+  btnViewRead.setAttribute("aria-pressed", String(read));
+  btnViewEdit.setAttribute("aria-pressed", String(!read));
+  if (remember) store.set(KEY.view, mode);
+}
+const promptView = () => (btnViewRead.getAttribute("aria-pressed") === "true" ? "read" : "edit");
+
+btnViewRead.addEventListener("click", () => setPromptView("read"));
+btnViewEdit.addEventListener("click", () => { setPromptView("edit"); refined.focus(); });
+
+btnCopyRaw.addEventListener("click", () => copyText(raw.value, btnCopyRaw));
+btnCopyRefined.addEventListener("click", () => copyText(refined.value, btnCopyRefined));
+btnShape.addEventListener("click", () => state.shaping ? stopShaping() : shapePrompt());
+btnRegen.addEventListener("click", () => { if (!state.shaping) shapePrompt(); });
+
+btnPause.addEventListener("click", () => state.paused ? resumeRecording() : pauseRecording());
+
+lamps.whisper.btn.addEventListener("click", () => {
+  ensureWhisper().catch(e => setNotice(captureError, `Transcription model didn't load: ${e.message}`));
 });
 
-// ----- Templates UI -----
+// Clicking the shaper lamp re-probes for WebGPU first — the answer can change
+// between page loads, and a stale "unavailable" shouldn't be a dead end.
+lamps.shaper.btn.addEventListener("click", async () => {
+  const wasOk = GPU.ok;
+  await probeGPU();
+  if (GPU.ok !== wasOk) { renderModelSelect(); applyGPUState(); }
+  if (!GPU.ok) setNotice(shapeError, `Faster GPU shaping is unavailable. ${GPU.reason} The CPU model in the list still works.`);
+  else setNotice(shapeError, "");
+  ensureShaper().catch(e => setNotice(shapeError, e.message));
+});
+
+autoShape.checked = !!store.get(KEY.autoShape, false);
+autoShape.addEventListener("change", () => store.set(KEY.autoShape, autoShape.checked));
+
+/* Keyboard */
+// Space only reaches the transport when focus isn't on something that owns the key itself.
+const ownsSpace = (el) => !!el && (["TEXTAREA", "INPUT", "SELECT", "BUTTON", "OPTION"].includes(el.tagName) || el.isContentEditable);
+document.addEventListener("keydown", (e) => {
+  const mod = e.metaKey || e.ctrlKey;
+
+  if (mod && e.key === "Enter") {
+    e.preventDefault();
+    if (e.shiftKey) copyText(refined.value || raw.value, refined.value ? btnCopyRefined : btnCopyRaw);
+    else if (!state.shaping) shapePrompt();
+    else stopShaping();
+    return;
+  }
+  if (e.key === "Escape") {
+    if (dialog.open) return;
+    if (state.recording) { e.preventDefault(); stopRecording(); }
+    else if (state.shaping) { e.preventDefault(); stopShaping(); }
+    return;
+  }
+  if (e.code === "Space" && !mod && !e.altKey && !ownsSpace(document.activeElement) && !dialog.open) {
+    e.preventDefault();
+    if (!btnRecord.disabled) state.recording ? stopRecording() : startRecording();
+    return;
+  }
+  if ((e.key === "p" || e.key === "P") && !mod && !ownsSpace(document.activeElement) && !dialog.open && state.recording) {
+    e.preventDefault();
+    state.paused ? resumeRecording() : pauseRecording();
+  }
+});
+
+window.addEventListener("beforeunload", (e) => {
+  if (state.recording) { e.preventDefault(); e.returnValue = ""; }
+});
+
+/* ────────────────────────────────────────────────────────────
+   Templates
+   ──────────────────────────────────────────────────────────── */
+function saveTemplates() { store.set(KEY.templates, state.templates); }
+function makeId(name) {
+  const base = (name || "template").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "template";
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+const savedActive = store.get(KEY.active, null);
+state.activeTemplateId = state.templates.some(t => t.id === savedActive) ? savedActive : state.templates[0].id;
+
 function renderTemplateSelect() {
   tplSelect.innerHTML = "";
   for (const t of state.templates) {
@@ -1134,109 +2351,98 @@ function renderTemplateList() {
   tplList.innerHTML = "";
   for (const t of state.templates) {
     const li = document.createElement("li");
-    li.textContent = t.name || "(untitled)";
-    li.dataset.id = t.id;
+    li.textContent = t.name || "Untitled";
     li.setAttribute("role", "option");
-    if (t.id === state.editingTemplateId) li.classList.add("active");
-    li.addEventListener("click", () => selectEditingTemplate(t.id));
+    li.setAttribute("aria-selected", String(t.id === state.editingId));
+    if (t.id === state.editingId) li.classList.add("active");
+    li.addEventListener("click", () => selectEditing(t.id));
     tplList.appendChild(li);
   }
 }
-function loadEditorFromTemplate(t) {
+function loadEditor(t) {
   tplName.value = t.name || "";
   tplSystem.value = t.system || "";
   tplBefore.value = t.before || "";
   tplAfter.value = t.after || "";
-  tplDelete.disabled = state.templates.length <= 1;
+  $("tpl-delete").disabled = state.templates.length <= 1;
 }
-function selectEditingTemplate(id) {
+function selectEditing(id) {
   const t = state.templates.find(x => x.id === id);
   if (!t) return;
-  state.editingTemplateId = id;
+  state.editingId = id;
   renderTemplateList();
-  loadEditorFromTemplate(t);
+  loadEditor(t);
 }
-function commitEditorToTemplate() {
-  const t = state.templates.find(x => x.id === state.editingTemplateId);
+function commitEditor() {
+  const t = state.templates.find(x => x.id === state.editingId);
   if (!t) return;
-  t.name = tplName.value.trim() || "(untitled)";
+  t.name = tplName.value.trim() || "Untitled";
   t.system = tplSystem.value;
   t.before = tplBefore.value;
   t.after = tplAfter.value;
-  saveTemplates(state.templates);
+  saveTemplates();
   renderTemplateList();
   renderTemplateSelect();
 }
 
 tplSelect.addEventListener("change", () => {
   state.activeTemplateId = tplSelect.value;
-  saveActiveTemplateId(state.activeTemplateId);
+  store.set(KEY.active, state.activeTemplateId);
 });
 
-btnManageTemplates.addEventListener("click", () => {
-  state.editingTemplateId = state.activeTemplateId;
+btnTemplates.addEventListener("click", () => {
+  state.editingId = state.activeTemplateId;
   renderTemplateList();
-  const t = getActiveTemplate();
-  if (t) loadEditorFromTemplate(t);
-  if (typeof tplDialog.showModal === "function") tplDialog.showModal();
-  else tplDialog.setAttribute("open", "");
+  loadEditor(activeTemplate());
+  dialog.showModal();
 });
-
-tplDialogClose.addEventListener("click", () => {
-  commitEditorToTemplate();
-  // Keep activeTemplateId if it still exists; otherwise fall back
+$("tpl-close").addEventListener("click", () => {
+  commitEditor();
   if (!state.templates.some(t => t.id === state.activeTemplateId)) {
     state.activeTemplateId = state.templates[0].id;
-    saveActiveTemplateId(state.activeTemplateId);
+    store.set(KEY.active, state.activeTemplateId);
   }
   renderTemplateSelect();
-  if (tplDialog.open) tplDialog.close();
+  dialog.close();
 });
+for (const el of [tplName, tplSystem, tplBefore, tplAfter]) el.addEventListener("input", commitEditor);
 
-for (const el of [tplName, tplSystem, tplBefore, tplAfter]) {
-  el.addEventListener("input", commitEditorToTemplate);
-}
-
-tplNew.addEventListener("click", () => {
-  commitEditorToTemplate();
-  const newTpl = {
-    id: makeTemplateId("custom"),
+$("tpl-new").addEventListener("click", () => {
+  commitEditor();
+  const t = {
+    id: makeId("custom"),
     name: "New template",
-    system: "You rewrite voice notes into clear, structured prompts. Do not invent facts.",
-    before: `# Task\nRewrite my voice note as a structured prompt.\n\n# Rules\n- Preserve every concrete detail I mentioned.\n- Do not invent facts.\n- Output ONLY the structured prompt below.\n\n# My voice note (verbatim, between the markers below):`,
+    system: "You rewrite voice notes into clear, structured prompts. You never invent facts.",
+    before: `# Task\nRewrite my voice note as a structured prompt.\n\n# Absolute rules\n- Preserve every concrete detail I mention.\n- Do NOT invent facts I did not say.\n- Output ONLY the structured prompt. No preamble.\n\n# My voice note (verbatim, between the markers below):`,
     after: `# Required output format\n\n## Contents\n<your sections here>\n\n## Concerns\n- <ambiguity to clarify>\n\nIf a section has nothing to populate, write "(none mentioned)".`,
   };
-  state.templates.push(newTpl);
-  saveTemplates(state.templates);
-  selectEditingTemplate(newTpl.id);
+  state.templates.push(t);
+  saveTemplates();
+  selectEditing(t.id);
   renderTemplateSelect();
   tplName.focus();
   tplName.select();
 });
 
-tplDelete.addEventListener("click", () => {
+$("tpl-delete").addEventListener("click", () => {
   if (state.templates.length <= 1) return;
-  const idx = state.templates.findIndex(t => t.id === state.editingTemplateId);
+  const idx = state.templates.findIndex(t => t.id === state.editingId);
   if (idx < 0) return;
-  const removed = state.templates.splice(idx, 1)[0];
+  const [removed] = state.templates.splice(idx, 1);
   if (state.activeTemplateId === removed.id) {
     state.activeTemplateId = state.templates[0].id;
-    saveActiveTemplateId(state.activeTemplateId);
+    store.set(KEY.active, state.activeTemplateId);
   }
-  saveTemplates(state.templates);
-  selectEditingTemplate(state.templates[Math.max(0, idx - 1)].id);
+  saveTemplates();
+  selectEditing(state.templates[Math.max(0, idx - 1)].id);
   renderTemplateSelect();
 });
 
-tplRestore.addEventListener("click", () => {
-  if (!confirm("Restore the built-in templates? This re-adds any missing defaults and resets edited defaults to their original content. Your custom templates will be kept.")) return;
+$("tpl-restore").addEventListener("click", () => {
+  if (!confirm("Restore the built-in templates? Edited built-ins go back to their original text. Templates you created are kept.")) return;
   const byId = new Map(state.templates.map(t => [t.id, t]));
-  for (const def of DEFAULT_TEMPLATES) {
-    byId.set(def.id, structuredClone(def));
-  }
-  state.templates = Array.from(byId.values());
-  // Put defaults first in their canonical order, then customs
-  state.templates.sort((a, b) => {
+  for (const def of DEFAULT_TEMPLATES) byId.set(def.id, structuredClone(def));
+  state.templates = Array.from(byId.values()).sort((a, b) => {
     const ai = DEFAULT_TEMPLATES.findIndex(d => d.id === a.id);
     const bi = DEFAULT_TEMPLATES.findIndex(d => d.id === b.id);
     if (ai === -1 && bi === -1) return 0;
@@ -1244,19 +2450,65 @@ tplRestore.addEventListener("click", () => {
     if (bi === -1) return -1;
     return ai - bi;
   });
-  saveTemplates(state.templates);
-  selectEditingTemplate(state.editingTemplateId && state.templates.some(t => t.id === state.editingTemplateId)
-    ? state.editingTemplateId
-    : state.templates[0].id);
+  saveTemplates();
+  selectEditing(state.templates.some(t => t.id === state.editingId) ? state.editingId : state.templates[0].id);
   renderTemplateSelect();
 });
 
-renderTemplateSelect();
-
-// Initial WebGPU note (transcription works without it, rewriter doesn't)
-if (!("gpu" in navigator)) {
-  llmStatus.textContent = "WebGPU unavailable — rewriter disabled";
+/* ────────────────────────────────────────────────────────────
+   Boot
+   ──────────────────────────────────────────────────────────── */
+function applyGPUState() {
+  if (GPU.ok) {
+    setLamp("whisper", "idle", "Loads on first use");
+    setLamp("shaper", "idle", "Loads on first use");
+    engineNote.textContent = "Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works.";
+  } else {
+    setLamp("whisper", "idle", "CPU — base.en");
+    setLamp("shaper", "idle", "CPU — small model");
+    engineNote.textContent = `No WebGPU here, so Whisper runs base.en and shaping runs a 0.5B model — both on the CPU, both slower. ${GPU.reason}`;
+  }
+  lamps.shaper.btn.disabled = false;
 }
+
+renderTemplateSelect();
+renderModelSelect();
+renderSessions();
+setPromptView(store.get(KEY.view, "read"), { remember: false });
+applyGPUState();
+sizeScope();
+setCount(rawCount, raw.value);
+setCount(refinedCount, refined.value);
+btnShape.disabled = !raw.value.trim();
+btnRegen.disabled = !raw.value.trim();
+
+// Recording and WebGPU are both secure-context features. Say so up front rather
+// than letting the first click fail with a TypeError.
+if (!captureSupported()) {
+  setNotice(insecure, CAPTURE_BLOCKED);
+  insecure.innerHTML = insecure.textContent.replace(/`([^`]+)`/g, "<code>$1</code>");
+  btnRecord.disabled = true;
+  btnRecordLabel.textContent = "Recording unavailable";
+  captureState.textContent = "Insecure context";
+  micSelect.disabled = true;
+}
+
+// Storage that's blocked outright fails on the first write, which could be many
+// minutes in. Find out at load instead, and show any failure recorded earlier.
+(function probeStorage() {
+  try {
+    localStorage.setItem("vox.probe", "1");
+    localStorage.removeItem("vox.probe");
+  } catch (e) {
+    noteStorageFailure(e);
+  }
+})();
+renderStorageWarning();
+
+if (navigator.mediaDevices?.addEventListener) {
+  navigator.mediaDevices.addEventListener("devicechange", listMics);
+}
+listMics();
 </script>
 </body>
 </html>
