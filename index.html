@@ -1479,6 +1479,59 @@ function makeThumb(canvas) {
   return c.toDataURL("image/jpeg", 0.6);
 }
 
+/* Four ways in — paste, drop, picker, screen grab — all land in loadImage,
+   so the engines never learn where an image came from. `how` is carried
+   through to the log and the status line: knowing an extraction came from a
+   screen grab rather than a file explains a lot when the result is bad. */
+function normalizeForOcr(bitmap) {
+  const { w, h, how } = ocrTargetSize(bitmap.width, bitmap.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const g = canvas.getContext("2d");
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(bitmap, 0, 0, w, h);
+  return { canvas, how };
+}
+
+async function loadImage(blob, how) {
+  setNotice(extractError, "");
+  if (!blob || !blob.type?.startsWith("image/")) {
+    setNotice(extractError, `That ${blob?.type || "item"} is not an image Vox can read.`);
+    return;
+  }
+
+  let bmp;
+  try {
+    bmp = await createImageBitmap(blob);
+  } catch (e) {
+    setNotice(extractError, `That image could not be decoded (${blob.type}, ${Math.round(blob.size / 1024)}KB).`);
+    console.warn("[vox] image decode failed", { how, type: blob.type, bytes: blob.size, error: e.message });
+    return;
+  }
+
+  const { canvas, how: sizing } = normalizeForOcr(bmp);
+  state.image = { canvas, how, sourceW: bmp.width, sourceH: bmp.height, bytes: blob.size };
+  bmp.close?.();
+
+  imgPreview.src = canvas.toDataURL("image/png");
+  imgPreview.hidden = false;
+  dropHint.hidden = true;
+  btnExtract.disabled = false;
+  extractState.textContent = `${how} · ${sizing}`;
+  console.log("[vox] image loaded", { how, sizing, type: blob.type, bytes: blob.size });
+}
+
+function clearImage() {
+  state.image = null;
+  imgPreview.hidden = true;
+  imgPreview.removeAttribute("src");
+  dropHint.hidden = false;
+  btnExtract.disabled = true;
+  extractState.textContent = "";
+  setNotice(extractError, "");
+}
+
 /* A long transcript can push the list past quota. Losing the newest session
    would be the worst outcome, so drop the oldest ones and retry instead. */
 function persistSessions() {
@@ -2453,6 +2506,110 @@ btnViewEdit.addEventListener("click", () => { setPromptView("edit"); refined.foc
 btnSrcVoice.addEventListener("click", () => setSourceTab("voice"));
 btnSrcImage.addEventListener("click", () => setSourceTab("image"));
 
+/* Paste is the path this feature exists for — a screenshot you just took, or
+   a picture copied out of a chat — so it listens on the document and only
+   bows out when the user is typing into a field. */
+addEventListener("paste", (e) => {
+  if (sourceTab() !== "image") return;
+  const t = e.target;
+  if (t && (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable)) return;
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
+  if (!item) return;
+  e.preventDefault();
+  loadImage(item.getAsFile(), "pasted");
+});
+
+$("btn-paste").addEventListener("click", async () => {
+  try {
+    for (const item of await navigator.clipboard.read()) {
+      const type = item.types.find(t => t.startsWith("image/"));
+      if (type) return loadImage(await item.getType(type), "pasted");
+    }
+    setNotice(extractError, "No image on the clipboard. Copy one, then try again.");
+  } catch (e) {
+    setNotice(extractError, `This browser would not hand over the clipboard (${e.name}). Press ⌘V or Ctrl+V instead.`);
+  }
+});
+
+for (const ev of ["dragenter", "dragover"]) {
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("is-over"); });
+}
+for (const ev of ["dragleave", "drop"]) {
+  drop.addEventListener(ev, () => drop.classList.remove("is-over"));
+}
+
+drop.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  const file = [...(e.dataTransfer?.files || [])].find(f => f.type.startsWith("image/"));
+  if (file) return loadImage(file, "dropped");
+
+  /* A drag from another browser tab carries a URL, not a file. Best effort:
+     the fetch can fail on CORS or offline, and saying so beats a dead target. */
+  /* Files but no image among them is a different mistake from a drag that
+     carried no file at all, and naming the type saves a second attempt. */
+  const files = [...(e.dataTransfer?.files || [])];
+  if (files.length) {
+    const kinds = [...new Set(files.map(f => f.type || "unknown type"))].join(", ");
+    setNotice(extractError, `Dropped ${files.length} file${files.length === 1 ? "" : "s"} (${kinds}), none of them an image Vox can read.`);
+    console.warn("[vox] drop had no usable image", { files: files.length, kinds });
+    return;
+  }
+
+  const url = e.dataTransfer?.getData("text/uri-list") || e.dataTransfer?.getData("text/plain");
+  if (!url) { setNotice(extractError, "Nothing image-shaped in that drop."); return; }
+  try {
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadImage(await res.blob(), "dragged from another tab");
+  } catch (err) {
+    setNotice(extractError, `That image is on another site and it refused the request (${err.message}). Save it and choose the file instead.`);
+    console.warn("[vox] cross-origin image drop failed", { url, error: err.message });
+  }
+});
+
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+});
+$("btn-choose").addEventListener("click", () => fileInput.click());
+
+fileInput.addEventListener("change", () => {
+  const f = fileInput.files?.[0];
+  if (f) loadImage(f, `chose ${f.name}`);
+  fileInput.value = "";
+});
+
+/* Screen capture is a secure-context feature, exactly like the microphone,
+   so it disables itself for the same reason rather than failing at the click.
+   The track is stopped the moment the frame is grabbed — nobody wants a
+   sharing indicator left burning. */
+btnScreen.addEventListener("click", async () => {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    video.muted = true;
+    await video.play();
+    await new Promise(r => requestAnimationFrame(r));
+    const c = document.createElement("canvas");
+    c.width = video.videoWidth;
+    c.height = video.videoHeight;
+    c.getContext("2d").drawImage(video, 0, 0);
+    const blob = await new Promise(r => c.toBlob(r, "image/png"));
+    await loadImage(blob, "grabbed from screen");
+  } catch (e) {
+    if (e.name !== "NotAllowedError") {
+      setNotice(extractError, `Screen capture failed (${e.name}).`);
+      console.warn("[vox] getDisplayMedia failed", { error: e.name });
+    }
+  } finally {
+    stream?.getTracks().forEach(t => t.stop());
+  }
+});
+
+btnImgClear.addEventListener("click", clearImage);
+
 btnCopyRaw.addEventListener("click", () => copyText(raw.value, btnCopyRaw));
 btnCopyRefined.addEventListener("click", () => copyText(refined.value, btnCopyRefined));
 btnShape.addEventListener("click", () => state.shaping ? stopShaping() : shapePrompt());
@@ -2713,6 +2870,15 @@ test("thumbTargetSize never upscales", () => {
 test("thumbTargetSize keeps at least one pixel", () => {
   eq(thumbTargetSize(4000, 3), { w: 256, h: 1 });
 });
+test("normalizeForOcr upscales a small bitmap onto a canvas", async () => {
+  const c = document.createElement("canvas");
+  c.width = 300; c.height = 200;
+  c.getContext("2d").fillRect(0, 0, 300, 200);
+  const bmp = await createImageBitmap(c);
+  const out = normalizeForOcr(bmp);
+  eq([out.canvas.width, out.canvas.height], [600, 400], "canvas size");
+  eq(out.how, "upscaled 300x200 to 600x400", "description");
+});
 test("makeThumb returns a small JPEG data URL", () => {
   const c = document.createElement("canvas");
   c.width = 1200; c.height = 600;
@@ -2753,6 +2919,10 @@ renderModelSelect();
 renderSessions();
 setPromptView(store.get(KEY.view, "read"), { remember: false });
 setSourceTab(sourceTab(), { remember: false });
+if (!navigator.mediaDevices?.getDisplayMedia) {
+  btnScreen.disabled = true;
+  btnScreen.title = "Screen capture needs a secure context — see the note at the foot of the page";
+}
 applyGPUState();
 sizeScope();
 setCount(rawCount, raw.value);
