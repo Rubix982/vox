@@ -1,0 +1,5 @@
+# Vendored Tesseract runtime — never diff or merge these.
+*.wasm            binary
+*.wasm.js         binary
+*.traineddata     binary
+*.traineddata.gz  binary
