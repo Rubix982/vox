@@ -1313,6 +1313,28 @@ function snippet(s) {
   return t.length > 96 ? `${t.slice(0, 96)}…` : t;
 }
 
+/* Resolution is most of OCR accuracy. Tesseract wants roughly
+   300dpi-equivalent text, so a small screenshot is upscaled rather than fed
+   in at its native size — the commonest failure, and the fix is free.
+   Oversized photos are capped so a 12MP phone shot does not spend a minute
+   in the WASM engine for no gain. */
+const OCR_MAX_EDGE = 2600;
+const OCR_MIN_EDGE = 1000;
+
+function ocrTargetSize(w, h) {
+  const long = Math.max(w, h);
+  if (long > OCR_MAX_EDGE) {
+    const k = OCR_MAX_EDGE / long;
+    const out = { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
+    return { ...out, how: `downscaled ${w}x${h} to ${out.w}x${out.h}` };
+  }
+  if (long < OCR_MIN_EDGE) {
+    const out = { w: w * 2, h: h * 2 };
+    return { ...out, how: `upscaled ${w}x${h} to ${out.w}x${out.h}` };
+  }
+  return { w, h, how: `used at ${w}x${h}` };
+}
+
 /* A long transcript can push the list past quota. Losing the newest session
    would be the worst outcome, so drop the oldest ones and retry instead. */
 function persistSessions() {
@@ -2494,6 +2516,25 @@ async function runTests() {
 }
 
 test("harness runs", () => { eq(1 + 1, 2, "arithmetic"); });
+
+test("ocrTargetSize leaves a well-sized image alone", () => {
+  eq(ocrTargetSize(1600, 900), { w: 1600, h: 900, how: "used at 1600x900" });
+});
+test("ocrTargetSize caps the long edge at 2600", () => {
+  eq(ocrTargetSize(5200, 2600), { w: 2600, h: 1300, how: "downscaled 5200x2600 to 2600x1300" });
+});
+test("ocrTargetSize caps on height when the image is tall", () => {
+  eq(ocrTargetSize(1000, 5200), { w: 500, h: 2600, how: "downscaled 1000x5200 to 500x2600" });
+});
+test("ocrTargetSize doubles a small image", () => {
+  eq(ocrTargetSize(400, 300), { w: 800, h: 600, how: "upscaled 400x300 to 800x600" });
+});
+test("ocrTargetSize treats 1000 as big enough", () => {
+  eq(ocrTargetSize(1000, 200), { w: 1000, h: 200, how: "used at 1000x200" });
+});
+test("ocrTargetSize survives a 1px image", () => {
+  eq(ocrTargetSize(1, 1), { w: 2, h: 2, how: "upscaled 1x1 to 2x2" });
+});
 
 /* The module suspends on the top-level `await probeGPU()` above, and the
    document fires `load` while it is suspended — so by the time this runs,
