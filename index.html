@@ -299,6 +299,53 @@
   }
   .scope__idle[hidden] { display: none; }
 
+  /* The drop target stands in for the scope on the Image tab, so it borrows
+     the same recessed well — inset shadow, same ground — and marks itself as
+     a target with a dashed edge rather than a different shape. */
+  .drop {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 190px;
+    padding: 12px;
+    border-radius: var(--radius);
+    background: #0b0c0a;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.75), inset 0 0 0 1px var(--edge-soft);
+    outline: 1px dashed var(--edge);
+    outline-offset: -5px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: outline-color 0.12s ease, box-shadow 0.12s ease;
+  }
+  .drop:hover, .drop:focus-visible { outline-color: var(--ink-faint); }
+  .drop.is-over {
+    outline-color: var(--lamp);
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.75), inset 0 0 0 1px var(--lamp-deep);
+  }
+  .drop__hint {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #4a4d42;
+    text-align: center;
+    line-height: 1.9;
+    pointer-events: none;
+  }
+  .drop__hint[hidden] { display: none; }
+  .drop__hint kbd {
+    font-family: var(--mono);
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .drop img {
+    display: block;
+    max-width: 100%;
+    max-height: 320px;
+    border-radius: 2px;
+  }
+
   .transport {
     display: grid;
     grid-template-columns: 1fr auto auto auto;
@@ -784,31 +831,78 @@
   <p class="notice notice--wide" id="storage-warn" role="alert" hidden></p>
   <p class="work__note">Whisper writes down what you said. A local model shapes it into a prompt worth sending. No audio, no text, no telemetry leaves this machine.</p>
 
-  <!-- ── Capture ───────────────────────────────────────────── -->
+  <!-- ── Source ────────────────────────────────────────────── -->
   <section class="module" aria-labelledby="silk-capture">
     <div class="module__bar">
-      <span class="silk silk--key" id="silk-capture">Capture</span>
+      <span class="silk silk--key" id="silk-capture">Source</span>
       <span class="meta" id="capture-state" role="status">Ready</span>
+      <div class="seg" role="group" aria-label="Input source">
+        <button id="src-voice" class="seg__btn" type="button" aria-pressed="true">Voice</button>
+        <button id="src-image" class="seg__btn" type="button" aria-pressed="false">Image</button>
+      </div>
       <label class="sr-only" for="mic-select">Microphone</label>
       <select id="mic-select" class="push" title="Microphone"><option>Default microphone</option></select>
+      <label class="sr-only" for="ocr-engine">Extraction engine</label>
+      <select id="ocr-engine" class="push" hidden title="Which engine reads the image">
+        <option value="fast">Fast — screenshots</option>
+        <option value="photo">Photo — angled or real-world</option>
+      </select>
     </div>
 
-    <div class="scope">
-      <canvas id="scope" aria-hidden="true"></canvas>
-      <div class="scope__idle" id="scope-idle">No take yet</div>
+    <div id="voice-body">
+      <div class="scope">
+        <canvas id="scope" aria-hidden="true"></canvas>
+        <div class="scope__idle" id="scope-idle">No take yet</div>
+      </div>
+
+      <div class="transport">
+        <button id="btn-record" class="btn-record lit" type="button">
+          <span class="bullet" aria-hidden="true"></span><span id="btn-record-label">Start recording</span>
+        </button>
+        <button id="btn-pause" type="button" hidden>Pause</button>
+        <div class="timecode" id="timecode" aria-hidden="true">0:00.0</div>
+        <button id="btn-clear" class="flat" type="button">Clear</button>
+      </div>
+
+      <div class="progress" id="whisper-progress" hidden><div class="bar"></div></div>
+      <p class="notice" id="capture-error" role="alert" hidden></p>
     </div>
 
-    <div class="transport">
-      <button id="btn-record" class="btn-record lit" type="button">
-        <span class="bullet" aria-hidden="true"></span><span id="btn-record-label">Start recording</span>
-      </button>
-      <button id="btn-pause" type="button" hidden>Pause</button>
-      <div class="timecode" id="timecode" aria-hidden="true">0:00.0</div>
-      <button id="btn-clear" class="flat" type="button">Clear</button>
-    </div>
+    <div id="image-body" hidden>
+      <div class="drop" id="drop" tabindex="0" role="button"
+           aria-label="Drop an image here, or paste one">
+        <img id="img-preview" alt="" hidden>
+        <div class="drop__hint" id="drop-hint">
+          Drop an image, paste with <kbd>⌘</kbd><kbd>V</kbd>, or choose one
+        </div>
+      </div>
 
-    <div class="progress" id="whisper-progress" hidden><div class="bar"></div></div>
-    <p class="notice" id="capture-error" role="alert" hidden></p>
+      <div class="actions">
+        <button id="btn-extract" class="lit" type="button" disabled>Extract text</button>
+        <button id="btn-paste" type="button">Paste</button>
+        <button id="btn-choose" type="button">Choose…</button>
+        <button id="btn-screen" type="button">Screen</button>
+        <button id="btn-img-clear" class="flat" type="button">Clear</button>
+        <span class="meta push" id="extract-state" role="status"></span>
+      </div>
+
+      <input type="file" id="file-input" accept="image/*" hidden>
+      <div class="progress" id="ocr-progress" hidden><div class="bar"></div></div>
+
+      <div class="lcd-frame">
+        <label class="sr-only" for="extracted">Extracted text</label>
+        <textarea id="extracted" class="lcd lcd--mono" spellcheck="false"
+          placeholder="The text found in the image appears here. Editable — OCR mangles names and jargon the same way Whisper does."></textarea>
+      </div>
+
+      <div class="actions">
+        <button id="btn-copy-text" class="lit" type="button" disabled>Copy text</button>
+        <button id="btn-to-transcript" type="button" disabled>Send to transcript</button>
+        <span class="meta push" id="extracted-count">0 words</span>
+      </div>
+
+      <p class="notice" id="extract-error" role="alert" hidden></p>
+    </div>
   </section>
 
   <div class="chain">
@@ -966,6 +1060,7 @@ const KEY = {
   draft:     "vox.draft.v1",
   sessions:  "vox.sessions.v1",
   current:   "vox.session.current.v1",
+  srcTab:    "vox.srctab.v1",
 };
 const SESSION_LIMIT = 60;
 /* Writes can fail — a full quota, or a browser that blocks storage outright.
@@ -1163,6 +1258,14 @@ const state = {
 
   sessions: store.get(KEY.sessions, []) || [],
   sessionId: store.get(KEY.current, null),
+
+  image: null,
+  extracting: false,
+  lastExtract: null,
+  tesseract: null,
+  tessLoading: false,
+  florence: null,
+  florenceLoading: false,
 };
 if (!Array.isArray(state.sessions)) state.sessions = [];
 if (!Array.isArray(state.templates) || !state.templates.length) state.templates = structuredClone(DEFAULT_TEMPLATES);
@@ -1203,6 +1306,27 @@ const shapeWarn = $("shape-warn");
 const mdView = $("md-view");
 const btnViewRead = $("view-read");
 const btnViewEdit = $("view-edit");
+
+// Source tabs and the image side
+const btnSrcVoice = $("src-voice");
+const btnSrcImage = $("src-image");
+const voiceBody = $("voice-body");
+const imageBody = $("image-body");
+const ocrEngine = $("ocr-engine");
+const drop = $("drop");
+const dropHint = $("drop-hint");
+const imgPreview = $("img-preview");
+const fileInput = $("file-input");
+const btnExtract = $("btn-extract");
+const btnImgClear = $("btn-img-clear");
+const btnScreen = $("btn-screen");
+const extractState = $("extract-state");
+const extractError = $("extract-error");
+const ocrProgress = $("ocr-progress");
+const extracted = $("extracted");
+const extractedCount = $("extracted-count");
+const btnCopyText = $("btn-copy-text");
+const btnToTranscript = $("btn-to-transcript");
 const tplSelect = $("template-select");
 const modelSelect = $("model-select");
 const btnTemplates = $("btn-templates");
@@ -2303,10 +2427,31 @@ function setPromptView(mode, { remember = true } = {}) {
   btnViewEdit.setAttribute("aria-pressed", String(!read));
   if (remember) store.set(KEY.view, mode);
 }
+
+/* The two sources hold their state independently — a loaded waveform and a
+   loaded image both survive a tab switch, because losing either to a stray
+   click would be infuriating. Only visibility moves. */
+function sourceTab() {
+  return store.get(KEY.srcTab, "voice") === "image" ? "image" : "voice";
+}
+
+function setSourceTab(which, { remember = true } = {}) {
+  const image = which === "image";
+  voiceBody.hidden = image;
+  imageBody.hidden = !image;
+  micSelect.hidden = image;
+  ocrEngine.hidden = !image;
+  btnSrcVoice.setAttribute("aria-pressed", String(!image));
+  btnSrcImage.setAttribute("aria-pressed", String(image));
+  if (remember) store.set(KEY.srcTab, image ? "image" : "voice");
+}
 const promptView = () => (btnViewRead.getAttribute("aria-pressed") === "true" ? "read" : "edit");
 
 btnViewRead.addEventListener("click", () => setPromptView("read"));
 btnViewEdit.addEventListener("click", () => { setPromptView("edit"); refined.focus(); });
+
+btnSrcVoice.addEventListener("click", () => setSourceTab("voice"));
+btnSrcImage.addEventListener("click", () => setSourceTab("image"));
 
 btnCopyRaw.addEventListener("click", () => copyText(raw.value, btnCopyRaw));
 btnCopyRefined.addEventListener("click", () => copyText(refined.value, btnCopyRefined));
@@ -2607,6 +2752,7 @@ renderTemplateSelect();
 renderModelSelect();
 renderSessions();
 setPromptView(store.get(KEY.view, "read"), { remember: false });
+setSourceTab(sourceTab(), { remember: false });
 applyGPUState();
 sizeScope();
 setCount(rawCount, raw.value);
