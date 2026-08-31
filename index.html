@@ -1016,7 +1016,8 @@ import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.79";
    The ESM build has a default export only — a named import throws. */
 import Tesseract from "./assets/tesseract/tesseract.esm.min.js";
 
-const { pipeline, env, TextStreamer, InterruptableStoppingCriteria } = TF;
+const { pipeline, env, TextStreamer, InterruptableStoppingCriteria,
+        AutoProcessor, AutoTokenizer, Florence2ForConditionalGeneration, RawImage } = TF;
 const { createWorker } = Tesseract;
 env.allowLocalModels = false;
 
@@ -1937,9 +1938,96 @@ async function extractText(canvas, engine) {
   return { text: (data.text || "").trim(), confidence, engine: "fast" };
 }
 
-// Replaced in the next task; without it the module would not parse.
-async function extractWithFlorence() {
-  throw new Error("Photo mode is not wired up yet.");
+const FLORENCE = "onnx-community/Florence-2-base-ft";
+
+/* Florence-2 on WASM means a ~1.09GB fp32 download, which is not a real
+   option, so Photo mode is WebGPU-only and says so rather than starting a
+   download it cannot finish. pipeline() does not support Florence-2 in any
+   version, so the Auto classes are used directly. */
+async function ensureFlorence() {
+  if (state.florence) return state.florence;
+  if (state.florenceLoading) {
+    while (state.florenceLoading) await new Promise(r => setTimeout(r, 100));
+    return state.florence;
+  }
+  if (!GPU.ok) throw new Error("Photo mode needs WebGPU. Use Fast, or open Vox in Chrome or Edge.");
+
+  state.florenceLoading = true;
+  lamps.ocr.btn.disabled = true;
+  const started = performance.now();
+  try {
+    setLamp("ocr", "loading", "Downloading Florence-2");
+    setProgress(ocrProgress, 0);
+
+    let half = false;
+    try {
+      const adapter = await navigator.gpu.requestAdapter();
+      half = !!adapter?.features?.has("shader-f16");
+    } catch { half = false; }
+
+    /* embed_tokens at q4 is byte-identical to fp32 in this repo, so q4 there
+       buys nothing — fp16 when the adapter advertises it, fp32 otherwise. */
+    const dtype = {
+      embed_tokens: half ? "fp16" : "fp32",
+      vision_encoder: half ? "fp16" : "fp32",
+      encoder_model: "q4",
+      decoder_model_merged: "q4",
+    };
+
+    const opts = {
+      device: "webgpu",
+      dtype,
+      progress_callback: (p) => {
+        if (p.status === "progress" && typeof p.progress === "number") setProgress(ocrProgress, p.progress / 100);
+        else if (p.status === "ready") setProgress(ocrProgress, 1);
+      },
+    };
+
+    const [processor, tokenizer, model] = await Promise.all([
+      AutoProcessor.from_pretrained(FLORENCE),
+      AutoTokenizer.from_pretrained(FLORENCE),
+      Florence2ForConditionalGeneration.from_pretrained(FLORENCE, opts),
+    ]);
+
+    state.florence = { processor, tokenizer, model, half };
+    setLamp("ocr", "ready", half ? "Florence-2 fp16" : "Florence-2 fp32");
+    console.log("[vox] florence-2 ready", { half, ms: Math.round(performance.now() - started) });
+    return state.florence;
+  } catch (e) {
+    setLamp("ocr", "off", "Florence-2 failed");
+    lamps.ocr.btn.disabled = false;
+    console.error("[vox] florence-2 load failed", { error: e.message });
+    throw e;
+  } finally {
+    state.florenceLoading = false;
+    hideProgress(ocrProgress);
+  }
+}
+
+/* The <OCR> task prompt and its post-processing type come from the model
+   repo's preprocessor_config.json, not from the library. */
+async function extractWithFlorence(canvas) {
+  const { processor, tokenizer, model } = await ensureFlorence();
+  const task = "<OCR>";
+  const started = performance.now();
+
+  const image = await RawImage.fromCanvas(canvas);
+  const vision = await processor(image);
+  const prompts = processor.construct_prompts(task);
+  const textInputs = tokenizer(prompts);
+
+  const ids = await model.generate({
+    ...textInputs, ...vision,
+    max_new_tokens: 1024, num_beams: 1, do_sample: false,
+  });
+  const decoded = tokenizer.batch_decode(ids, { skip_special_tokens: false })[0];
+  const out = processor.post_process_generation(decoded, task, image.size);
+  const text = (out[task] || "").trim();
+
+  console.log("[vox] extracted with florence-2", {
+    chars: text.length, ms: Math.round(performance.now() - started),
+  });
+  return { text, confidence: null, engine: "photo" };
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -3005,6 +3093,13 @@ renderModelSelect();
 renderSessions();
 setPromptView(store.get(KEY.view, "read"), { remember: false });
 setSourceTab(sourceTab(), { remember: false });
+/* Never offer a 357MB download that cannot run. */
+if (!GPU.ok) {
+  const photo = ocrEngine.querySelector('option[value="photo"]');
+  photo.disabled = true;
+  photo.textContent = "Photo — needs WebGPU";
+}
+
 if (!navigator.mediaDevices?.getDisplayMedia) {
   btnScreen.disabled = true;
   btnScreen.title = "Screen capture needs a secure context — see the note at the foot of the page";
