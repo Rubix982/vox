@@ -188,10 +188,17 @@ would have bought, and it is not worth the quota).
 
 ## To verify during implementation
 
-- The output flags needed to get per-word confidence from `worker.recognize`
-  in v7, since v6 disabled all non-`text` outputs by default.
+- ~~The output flags needed to get per-word confidence from `worker.recognize`
+  in v7~~ — **resolved during implementation.** `worker.recognize(canvas, {},
+  { text: true, blocks: true })` returns a populated `blocks` array carrying
+  per-word `confidence`, and `data.confidence` is present as a top-level mean
+  besides. On a synthetic code screenshot the two agreed within a point (89
+  vs 88).
 - Florence-2 dtype mix per module. `embed_tokens_q4` is byte-identical to
   fp32 in this repo, so `q4` there buys nothing — use fp16 or int8.
-- The exact filename and gzip convention `langPath` expects for a vendored
-  `eng.traineddata`, since the CDN serves it gzipped and v7 changed the
-  default `langPath` to an npm-hosted directory.
+- ~~The exact filename and gzip convention `langPath` expects~~ —
+  **resolved during implementation.** `worker-script/index.js` builds
+  `${langPath}/${lang}.traineddata${gzip ? '.gz' : ''}`, so
+  `assets/tesseract/lang/eng.traineddata.gz` with `gzip: true` is correct.
+  `getCore.js` requests only the self-contained `.wasm.js` builds, and only
+  the `-lstm` tiers while `legacyCore` stays off.

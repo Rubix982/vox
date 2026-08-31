@@ -821,6 +821,10 @@
         <span class="led" id="led-shaper" data-state="idle"></span>
         Shaper <span class="state" id="state-shaper">Loads on first use</span>
       </button>
+      <button class="lamp-btn" id="lamp-ocr" type="button" title="Load the text-extraction engine now, before you need it">
+        <span class="led" id="led-ocr" data-state="idle"></span>
+        OCR <span class="state" id="state-ocr">Loads on first use</span>
+      </button>
     </div>
   </section>
 </aside>
@@ -1007,8 +1011,13 @@
 // Namespace import, not named: a missing export here would otherwise kill the whole module at link time.
 import * as TF from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2";
 import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.79";
+/* Vendored, not CDN: Tesseract caches only its language data, so a CDN
+   worker and core would make OCR the one part of Vox that needs the network.
+   The ESM build has a default export only — a named import throws. */
+import Tesseract from "./assets/tesseract/tesseract.esm.min.js";
 
 const { pipeline, env, TextStreamer, InterruptableStoppingCriteria } = TF;
+const { createWorker } = Tesseract;
 env.allowLocalModels = false;
 
 /* ────────────────────────────────────────────────────────────
@@ -1340,6 +1349,7 @@ const engineNote = $("engine-note");
 const lamps = {
   whisper: { btn: $("lamp-whisper"), led: $("led-whisper"), state: $("state-whisper") },
   shaper:  { btn: $("lamp-shaper"),  led: $("led-shaper"),  state: $("state-shaper")  },
+  ocr:     { btn: $("lamp-ocr"),     led: $("led-ocr"),     state: $("state-ocr")     },
 };
 
 
@@ -1856,6 +1866,80 @@ async function ensureWhisper() {
     hideProgress(whisperProgress);
   }
   return state.transcriber;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Text extraction
+   ──────────────────────────────────────────────────────────── */
+
+/* Everything Tesseract needs is under assets/, so this works with the
+   network unplugged. Language data still lands in IndexedDB on first run;
+   the worker and core come off disk. corePath is a directory, never a single
+   file, so the SIMD tier is still chosen by feature detection. */
+const TESS_PATHS = {
+  workerPath: new URL("./assets/tesseract/worker.min.js", location.href).href,
+  corePath: new URL("./assets/tesseract/core/", location.href).href,
+  langPath: new URL("./assets/tesseract/lang", location.href).href,
+  gzip: true,
+};
+
+async function ensureTesseract() {
+  if (state.tesseract) return state.tesseract;
+  if (state.tessLoading) {
+    while (state.tessLoading) await new Promise(r => setTimeout(r, 100));
+    return state.tesseract;
+  }
+  state.tessLoading = true;
+  lamps.ocr.btn.disabled = true;
+  const started = performance.now();
+  try {
+    setLamp("ocr", "loading", "Starting Tesseract");
+    setProgress(ocrProgress, 0);
+    state.tesseract = await createWorker("eng", 1, {
+      ...TESS_PATHS,
+      logger: (m) => {
+        if (typeof m.progress === "number") setProgress(ocrProgress, m.progress);
+      },
+    });
+    setLamp("ocr", "ready", "Tesseract");
+    console.log("[vox] tesseract ready", { ms: Math.round(performance.now() - started) });
+    return state.tesseract;
+  } catch (e) {
+    setLamp("ocr", "off", "Failed to load");
+    lamps.ocr.btn.disabled = false;
+    console.error("[vox] tesseract load failed", { error: e.message, corePath: TESS_PATHS.corePath });
+    throw e;
+  } finally {
+    state.tessLoading = false;
+    hideProgress(ocrProgress);
+  }
+}
+
+/* One entry point, engine as an argument, so the caller never branches on
+   which engine is in use. Confidence comes back only from the fast engine —
+   Florence-2 does not report one, hence the null. */
+async function extractText(canvas, engine) {
+  if (engine === "photo") return extractWithFlorence(canvas);
+
+  const worker = await ensureTesseract();
+  const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+  const found = (data.blocks || []).flatMap(b =>
+    (b.paragraphs || []).flatMap(par => (par.lines || []).flatMap(l => l.words || [])));
+  const confidence = found.length
+    ? found.reduce((a, w) => a + (w.confidence ?? 0), 0) / found.length
+    : (typeof data.confidence === "number" ? data.confidence : null);
+
+  console.log("[vox] extracted with tesseract", {
+    chars: (data.text || "").length,
+    words: found.length,
+    confidence: confidence == null ? null : Math.round(confidence),
+  });
+  return { text: (data.text || "").trim(), confidence, engine: "fast" };
+}
+
+// Replaced in the next task; without it the module would not parse.
+async function extractWithFlorence() {
+  throw new Error("Photo mode is not wired up yet.");
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -2616,6 +2700,8 @@ btnShape.addEventListener("click", () => state.shaping ? stopShaping() : shapePr
 btnRegen.addEventListener("click", () => { if (!state.shaping) shapePrompt(); });
 
 btnPause.addEventListener("click", () => state.paused ? resumeRecording() : pauseRecording());
+
+lamps.ocr.btn.addEventListener("click", () => { ensureTesseract().catch(() => {}); });
 
 lamps.whisper.btn.addEventListener("click", () => {
   ensureWhisper().catch(e => setNotice(captureError, `Transcription model didn't load: ${e.message}`));
