@@ -135,6 +135,16 @@
     border-left-color: var(--lamp);
     color: #f2e6cd;
   }
+  .sessions .session__thumb {
+    float: right;
+    width: 34px; height: 34px;
+    object-fit: cover;
+    border-radius: 2px;
+    margin: 0 0 2px 8px;
+    opacity: .7;
+  }
+  .sessions .session:hover .session__thumb,
+  .sessions .session.active .session__thumb { opacity: 1; }
   .sessions .session:active { transform: none; }
   .session__meta {
     display: block;
@@ -1543,21 +1553,52 @@ function clearImage() {
   setNotice(extractError, "");
 }
 
-/* A long transcript can push the list past quota. Losing the newest session
-   would be the worst outcome, so drop the oldest ones and retry instead. */
+/* Sessions are newest-first, so the oldest thumbnails are at the tail.
+   Returns how many were dropped, because the notice says so. */
+function stripOldestThumbs(sessions, keep) {
+  let n = 0;
+  for (let i = keep; i < sessions.length; i++) {
+    if (sessions[i].thumb) { delete sessions[i].thumb; n++; }
+  }
+  return n;
+}
+
+/* A long transcript, and now a thumbnail per extraction, can push the list
+   past quota. Losing the newest session would be the worst outcome — and
+   losing whole sessions to make room for pictures is nearly as bad, so
+   thumbnails go first. Text outlives pictures. */
 function persistSessions() {
   state.sessions = state.sessions.slice(0, SESSION_LIMIT);
   if (store.set(KEY.sessions, state.sessions)) return true;
 
-  while (state.sessions.length > 3) {
-    state.sessions = state.sessions.slice(0, Math.max(3, Math.floor(state.sessions.length / 2)));
-    if (store.set(KEY.sessions, state.sessions)) return true;
+  /* The ladder strips progressively more, so each pass only finds what the
+     previous one left behind — report the running total, not the last batch. */
+  let dropped = 0;
+  for (const keep of [12, 3, 0]) {
+    dropped += stripOldestThumbs(state.sessions, keep);
+    if (!dropped) continue;
+    if (store.set(KEY.sessions, state.sessions)) {
+      console.warn("[vox] dropped session thumbnails to fit quota", { dropped, thumbsKept: keep });
+      storageProblem = `Browser storage was full, so Vox dropped ${dropped} old session thumbnail${dropped === 1 ? "" : "s"}. The text is untouched.`;
+      renderStorageWarning();
+      return true;
+    }
   }
+
+  while (state.sessions.length > 3) {
+    const before = state.sessions.length;
+    state.sessions = state.sessions.slice(0, Math.max(3, Math.floor(state.sessions.length / 2)));
+    if (store.set(KEY.sessions, state.sessions)) {
+      console.warn("[vox] dropped oldest sessions to fit quota", { from: before, to: state.sessions.length });
+      return true;
+    }
+  }
+  console.error("[vox] could not persist sessions even after dropping everything droppable");
   return false;
 }
 
 function touchSession() {
-  if (!raw.value.trim() && !refined.value.trim()) return;
+  if (!raw.value.trim() && !refined.value.trim() && !extracted.value.trim()) return;
   let s = state.sessions.find(x => x.id === state.sessionId);
   if (!s) {
     s = { id: `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, at: Date.now() };
@@ -1569,6 +1610,12 @@ function touchSession() {
   s.prompt = refined.value;
   s.templateId = state.activeTemplateId;
   s.templateName = activeTemplate()?.name || "";
+  s.extracted = extracted.value;
+  s.ocrEngine = state.lastExtract?.engine || "";
+  /* Only the thumbnail is kept, never the original — a phone photo as a data
+     URL is megabytes, and it would buy only the ability to re-run the other
+     engine later. */
+  if (state.image && extracted.value.trim()) s.thumb = makeThumb(state.image.canvas);
   s.updated = Date.now();
   persistSessions();   // may trim older entries to fit
   renderSessions();
@@ -1587,14 +1634,23 @@ function renderSessions() {
     btn.className = "session" + (s.id === state.sessionId ? " active" : "");
     btn.setAttribute("aria-current", s.id === state.sessionId ? "true" : "false");
 
+    if (s.thumb) {
+      const th = document.createElement("img");
+      th.className = "session__thumb";
+      th.src = s.thumb;
+      th.alt = "";
+      btn.appendChild(th);
+    }
+
     const meta = document.createElement("span");
     meta.className = "session__meta";
     const n = words(s.transcript);
-    meta.textContent = [sessionStamp(s.at), s.templateName, `${n}w`].filter(Boolean).join(" · ");
+    meta.textContent = [sessionStamp(s.at), s.templateName, s.ocrEngine ? `ocr:${s.ocrEngine}` : "", `${n}w`]
+      .filter(Boolean).join(" · ");
 
     const snip = document.createElement("span");
     snip.className = "session__snip";
-    snip.textContent = snippet(s.transcript) || snippet(s.prompt) || "Empty";
+    snip.textContent = snippet(s.transcript) || snippet(s.extracted) || snippet(s.prompt) || "Empty";
 
     btn.append(meta, snip);
     btn.addEventListener("click", () => openSession(s.id));
@@ -1618,8 +1674,16 @@ function openSession(id) {
   if (state.recording) stopRecording({ discard: true });
   raw.value = s.transcript || "";
   refined.value = s.prompt || "";
+  extracted.value = s.extracted || "";
   setCount(rawCount, raw.value);
   setCount(refinedCount, refined.value);
+  setCount(extractedCount, extracted.value);
+  btnCopyText.disabled = !extracted.value.trim();
+  btnToTranscript.disabled = !extracted.value.trim();
+  /* The original image is not stored, only a thumbnail, so there is nothing
+     to extract from — clear the working canvas rather than leave a stale one
+     that Extract would happily re-read. */
+  clearImage();
   btnShape.disabled = !raw.value.trim();
   btnRegen.disabled = !raw.value.trim();
   if (s.templateId && state.templates.some(t => t.id === s.templateId)) {
@@ -1914,6 +1978,13 @@ async function ensureTesseract() {
     state.tessLoading = false;
     hideProgress(ocrProgress);
   }
+}
+
+/* Loading is separated from reading so the duration the interface reports
+   means inference, not a 357MB download. Both loaders are idempotent, so
+   extractText calling them again costs nothing. */
+function ensureOcrEngine(engine) {
+  return engine === "photo" ? ensureFlorence() : ensureTesseract();
 }
 
 /* One entry point, engine as an argument, so the caller never branches on
@@ -2782,6 +2853,111 @@ btnScreen.addEventListener("click", async () => {
 
 btnImgClear.addEventListener("click", clearImage);
 
+/* Says which engine ran, how confident it was, and — when the answer is
+   nothing — says that instead of blanking the box. An empty result is a
+   result, and silently clearing the previous one would lose work. */
+const OCR_LOW_CONFIDENCE = 60;
+
+async function runExtract() {
+  if (!state.image || state.extracting) return;
+  state.extracting = true;
+  btnExtract.disabled = true;
+  setNotice(extractError, "");
+
+  const engine = ocrEngine.value;
+  const name = engine === "photo" ? "Florence-2" : "Tesseract";
+  setProgress(ocrProgress, null);
+
+  try {
+    /* Load first, time second. On a cold cache Florence-2 is a 357MB
+       download, and folding that into the extraction duration would report a
+       number that says nothing about how fast reading actually is. */
+    if ((engine === "photo" && !state.florence) || (engine === "fast" && !state.tesseract)) {
+      extractState.textContent = `Loading ${name}…`;
+    }
+    await ensureOcrEngine(engine);
+
+    extractState.textContent = `Reading with ${name}…`;
+    setProgress(ocrProgress, null);
+    const started = performance.now();
+    const res = await extractText(state.image.canvas, engine);
+    const ms = Math.round(performance.now() - started);
+
+    if (!res.text) {
+      extractState.textContent = `No text found (${res.engine}, ${ms}ms)`;
+      setNotice(extractError, engine === "fast"
+        ? "No text found. If this is a photo rather than a screenshot, try Photo mode."
+        : "No text found in that image.");
+      console.log("[vox] extraction empty", { engine: res.engine, ms, how: state.image.how });
+      return;
+    }
+
+    extracted.value = res.text;
+    setCount(extractedCount, res.text);
+    btnCopyText.disabled = false;
+    btnToTranscript.disabled = false;
+    state.lastExtract = res;
+
+    const conf = res.confidence == null ? "" : ` · ${Math.round(res.confidence)}% confidence`;
+    extractState.textContent = `${words(res.text)} words in ${ms}ms (${res.engine})${conf}`;
+    if (res.confidence != null && res.confidence < OCR_LOW_CONFIDENCE) {
+      setNotice(extractError,
+        `Confidence is ${Math.round(res.confidence)}%, so this text is probably unreliable. Photo mode handles angled and low-contrast images better.`);
+    }
+    console.log("[vox] extraction done", {
+      engine: res.engine, ms, chars: res.text.length,
+      confidence: res.confidence == null ? null : Math.round(res.confidence),
+      how: state.image.how,
+    });
+    touchSession();
+    backlight(extracted);
+  } catch (e) {
+    extractState.textContent = "Extraction failed";
+    setNotice(extractError, e.message);
+    console.error("[vox] extraction failed", { engine, error: e.message });
+  } finally {
+    state.extracting = false;
+    btnExtract.disabled = !state.image;
+    hideProgress(ocrProgress);
+  }
+}
+
+btnExtract.addEventListener("click", runExtract);
+
+btnCopyText.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(extracted.value);
+    extractState.textContent = "Copied";
+  } catch {
+    extracted.select();
+    setNotice(extractError, "This browser blocked the clipboard. The text is selected — press ⌘C or Ctrl+C.");
+  }
+});
+
+/* Appends exactly the way a second voice take appends, so everything
+   downstream — shaping, templates, sessions — needs no idea that some of the
+   transcript came out of a picture. */
+btnToTranscript.addEventListener("click", () => {
+  const text = extracted.value.trim();
+  if (!text) return;
+  raw.value = raw.value.trim() ? `${raw.value.trim()}\n\n${text}` : text;
+  setCount(rawCount, raw.value);
+  btnShape.disabled = false;
+  btnRegen.disabled = false;
+  store.set(KEY.draft, { raw: raw.value, refined: refined.value });
+  touchSession();
+  extractState.textContent = "Sent to transcript";
+  backlight(raw);
+  console.log("[vox] extraction sent to transcript", { chars: text.length });
+});
+
+extracted.addEventListener("input", () => {
+  setCount(extractedCount, extracted.value);
+  const empty = !extracted.value.trim();
+  btnCopyText.disabled = empty;
+  btnToTranscript.disabled = empty;
+});
+
 btnCopyRaw.addEventListener("click", () => copyText(raw.value, btnCopyRaw));
 btnCopyRefined.addEventListener("click", () => copyText(refined.value, btnCopyRefined));
 btnShape.addEventListener("click", () => state.shaping ? stopShaping() : shapePrompt());
@@ -3043,6 +3219,21 @@ test("thumbTargetSize never upscales", () => {
 });
 test("thumbTargetSize keeps at least one pixel", () => {
   eq(thumbTargetSize(4000, 3), { w: 256, h: 1 });
+});
+test("stripOldestThumbs keeps the newest thumbnails", () => {
+  const s = [{ thumb: "a" }, { thumb: "b" }, { thumb: "c" }, { thumb: "d" }];
+  eq(stripOldestThumbs(s, 2), 2, "stripped count");
+  eq(s.map(x => x.thumb || null), ["a", "b", null, null], "which survived");
+});
+test("stripOldestThumbs reports zero when there is nothing to strip", () => {
+  const s = [{ thumb: "a" }, {}];
+  eq(stripOldestThumbs(s, 5), 0, "stripped count");
+  eq(s.map(x => x.thumb || null), ["a", null], "untouched");
+});
+test("stripOldestThumbs can strip everything", () => {
+  const s = [{ thumb: "a" }, { thumb: "b" }];
+  eq(stripOldestThumbs(s, 0), 2, "stripped count");
+  eq(s.map(x => x.thumb || null), [null, null], "all gone");
 });
 test("normalizeForOcr upscales a small bitmap onto a canvas", async () => {
   const c = document.createElement("canvas");
