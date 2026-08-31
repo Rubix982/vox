@@ -25,6 +25,68 @@ Models download once from Hugging Face's CDN into browser storage. After that yo
 
 Templates are editable and stored in `localStorage`, as is your model choice and the current draft.
 
+## Pulling text out of an image
+
+The `Source` module has two tabs. **Voice** is the microphone. **Image** takes a
+picture and gives you its text, for the case where copying it by hand is
+otherwise the only option — a screenshot of code, a forwarded chat image, a
+photo of a printed page.
+
+Four ways in: paste with `⌘V`, drop a file on the target, choose one, or grab a
+region of your own screen. Whichever you use, the image is normalized first —
+capped at 2600px on the long edge, and doubled if it is under 1000px, because
+resolution is most of OCR accuracy and an undersized screenshot is the
+commonest failure. The status line says which path the image came in by and
+what was done to it, so a bad result is traceable.
+
+Two engines, picked per image:
+
+**Fast** is Tesseract, on the CPU, and it is the right choice for anything
+rendered on a screen. Its whole runtime — worker, WASM core and English
+language data — is vendored in `assets/tesseract/`, so it works with the
+network unplugged. It reports a confidence figure, and under 60% it says the
+text is probably unreliable rather than handing it over quietly. It does not
+read handwriting, and does not pretend to.
+
+**Photo** is Florence-2 through WebGPU, for angled and real-world shots. It is
+a ~357MB download on first use, so it is never selected for you. Without
+WebGPU the option is disabled rather than offered and then failed. It reads a
+photographed page far better than Tesseract does; it is not reliable for
+recovering code verbatim.
+
+The text lands in its own editable box — OCR mangles names and jargon the same
+way Whisper does — with **Copy text**, and **Send to transcript**, which
+appends it exactly as a second voice take appends. So a photo can be shaped
+into a prompt by the same template chain, or just copied and taken elsewhere.
+
+Sessions keep the extracted text, which engine produced it, and a 256px
+thumbnail so an old one is recognisable in the rail. The original image is not
+kept; it would cost megabytes per session to buy only the ability to re-run the
+other engine later. If storage does fill, thumbnails are dropped before
+sessions are, and the notice says how many — text outlives pictures.
+
+### One setting that matters more than it looks
+
+Tesseract is configured with `thresholding_method: "1"`. Its default computes
+one brightness threshold across the whole image, which is fine for a document
+and useless for a screenshot holding both a bright panel and a dark one: the
+threshold suits neither and the engine returns *nothing at all*, silently.
+`assets/ocr-sample-darkmode.png` went from 0 characters to 561 at 83%
+confidence with that one change. If extraction ever starts coming back empty on
+dark-mode screenshots, look there first.
+
+### A note on transformers.js
+
+The Whisper and shaping models run on `@huggingface/transformers@3.0.2`, and
+Photo mode deliberately runs on it too. Version 4 rewrote the WebGPU execution
+provider, and there is an open issue against exactly this app's Whisper
+configuration — `device: "webgpu"` with an fp16 encoder — where output
+collapses from 4.0.0 onward, with a 2.5GB fp32 encoder as the only known
+workaround. Florence-2 works on 3.0.2, so this feature does not force that
+upgrade. If Photo mode ever needs replacing, `granite-docling-258M` needs only
+a 3.x bump; the smaller `LightOnOCR-2-1B` would need v4 and is therefore off
+the table while that issue stands.
+
 **Every instruction goes in the system message. The user message is the bare transcript.** This is the single most important detail in the whole tool. Chat models are trained to treat the user turn as the subject under discussion, so instructions placed there become something to process — a small model will dutifully "clean up" your rules and hand them back as the answer. `---` delimiters do not prevent this. Because the rules now describe the input rather than come from the speaker, they're written in the third person ("the speaker's wording", not "my wording"); first-person rules read as content and get echoed.
 
 Two more things that matter at this model size: the built-in formats describe each field in prose rather than showing `<angle brackets>` or `[square brackets]`, which get copied out verbatim as though they were answers; and frequency/presence penalties are zero, since they push the model away from reusing your own words — the opposite of what a faithful rewrite needs.
@@ -44,6 +106,17 @@ Left rail for sessions and machine status; work column anchored left, filling th
 ## Testing it
 
 [`samples.md`](samples.md) has six dictation scripts for the Coding task template, each targeting one failure mode — detail preservation, refusing to invent, self-correction, and the off-topic escape hatch — with what a pass and a fail look like for each.
+
+It also has four extraction samples for the Image tab — a code screenshot, a
+low-contrast dark-mode screenshot, an angled page, and handwriting as a
+documented known-fail — with the figures this build actually produces rather
+than targets. Three of the images are committed; the handwriting one needs a
+real photograph, and `samples.md` explains why a rendered font would not do.
+
+The tests for the pure helpers ship inside `index.html` and run at
+[`?test=1`](http://localhost:43869/?test=1), which renders pass/fail over the
+app. There is no build step and nowhere for a test runner to live, so they
+travel with the thing they test.
 
 ## Sessions
 

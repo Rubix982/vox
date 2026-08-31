@@ -79,8 +79,13 @@ async function runTests() {
   console.log(`[vox tests] ${pass} passed, ${fail} failed`);
 }
 
+/* The module suspends on the top-level `await probeGPU()` at line 955, and
+   the document fires `load` while it is suspended — so by the time this
+   runs, `load` has usually already gone. Check readyState rather than
+   trusting the event to still be coming. */
 if (new URLSearchParams(location.search).has("test")) {
-  addEventListener("load", runTests);
+  if (document.readyState === "complete") runTests();
+  else addEventListener("load", runTests);
 }
 ```
 
@@ -330,13 +335,15 @@ Wrap the existing `.scope` div, `.transport` div, `#whisper-progress` and `#capt
         </div>
       </div>
 
-      <div class="transport">
+      <!-- .actions, not .transport: .transport is a fixed 4-column grid tuned
+           for the voice controls, and six children make it wrap badly. -->
+      <div class="actions">
         <button id="btn-extract" class="lit" type="button" disabled>Extract text</button>
         <button id="btn-paste" type="button">Paste</button>
         <button id="btn-choose" type="button">Choose…</button>
         <button id="btn-screen" type="button">Screen</button>
-        <span class="meta push" id="extract-state" role="status"></span>
         <button id="btn-img-clear" class="flat" type="button">Clear</button>
+        <span class="meta push" id="extract-state" role="status"></span>
       </div>
 
       <input type="file" id="file-input" accept="image/*" hidden>
@@ -364,16 +371,30 @@ Wrap the existing `.scope` div, `.transport` div, `#whisper-progress` and `#capt
 Next to the existing `.scope` rules, matching their border and radius idiom:
 
 ```css
+  /* Borrow the .scope well — inset shadow, same ground — and mark it as a
+     target with a dashed outline rather than a different shape. */
   .drop {
     position: relative; display: grid; place-items: center;
-    min-height: 190px; padding: 12px; margin-bottom: 12px;
-    border: 1px dashed #3a4030; border-radius: 6px; background: #14170f;
-    cursor: pointer; transition: border-color .12s, background .12s;
+    min-height: 190px; padding: 12px;
+    border-radius: var(--radius); background: #0b0c0a;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.75), inset 0 0 0 1px var(--edge-soft);
+    outline: 1px dashed var(--edge); outline-offset: -5px;
+    cursor: pointer; overflow: hidden;
+    transition: outline-color .12s ease, box-shadow .12s ease;
   }
-  .drop:hover, .drop:focus-visible { border-color: #5d6748; outline: none; }
-  .drop.is-over { border-color: var(--lit, #c9d17a); background: #1b1f13; }
-  .drop__hint { color: #8e9678; font-size: 12px; text-align: center; }
-  .drop img { max-width: 100%; max-height: 320px; border-radius: 4px; display: block; }
+  .drop:hover, .drop:focus-visible { outline-color: var(--ink-faint); }
+  .drop.is-over {
+    outline-color: var(--lamp);
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.75), inset 0 0 0 1px var(--lamp-deep);
+  }
+  .drop__hint {
+    font-family: var(--display); font-size: 11px; font-weight: 600;
+    letter-spacing: .14em; text-transform: uppercase; color: #4a4d42;
+    text-align: center; line-height: 1.9; pointer-events: none;
+  }
+  .drop__hint[hidden] { display: none; }
+  .drop__hint kbd { font-family: var(--mono); letter-spacing: 0; text-transform: none; }
+  .drop img { display: block; max-width: 100%; max-height: 320px; border-radius: 2px; }
 ```
 
 - [ ] **Step 4: Add the tab state and wire the switch**

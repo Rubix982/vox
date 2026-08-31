@@ -135,6 +135,16 @@
     border-left-color: var(--lamp);
     color: #f2e6cd;
   }
+  .sessions .session__thumb {
+    float: right;
+    width: 34px; height: 34px;
+    object-fit: cover;
+    border-radius: 2px;
+    margin: 0 0 2px 8px;
+    opacity: .7;
+  }
+  .sessions .session:hover .session__thumb,
+  .sessions .session.active .session__thumb { opacity: 1; }
   .sessions .session:active { transform: none; }
   .session__meta {
     display: block;
@@ -298,6 +308,53 @@
     pointer-events: none;
   }
   .scope__idle[hidden] { display: none; }
+
+  /* The drop target stands in for the scope on the Image tab, so it borrows
+     the same recessed well — inset shadow, same ground — and marks itself as
+     a target with a dashed edge rather than a different shape. */
+  .drop {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 190px;
+    padding: 12px;
+    border-radius: var(--radius);
+    background: #0b0c0a;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.75), inset 0 0 0 1px var(--edge-soft);
+    outline: 1px dashed var(--edge);
+    outline-offset: -5px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: outline-color 0.12s ease, box-shadow 0.12s ease;
+  }
+  .drop:hover, .drop:focus-visible { outline-color: var(--ink-faint); }
+  .drop.is-over {
+    outline-color: var(--lamp);
+    box-shadow: inset 0 2px 6px rgba(0,0,0,0.75), inset 0 0 0 1px var(--lamp-deep);
+  }
+  .drop__hint {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #4a4d42;
+    text-align: center;
+    line-height: 1.9;
+    pointer-events: none;
+  }
+  .drop__hint[hidden] { display: none; }
+  .drop__hint kbd {
+    font-family: var(--mono);
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  .drop img {
+    display: block;
+    max-width: 100%;
+    max-height: 320px;
+    border-radius: 2px;
+  }
 
   .transport {
     display: grid;
@@ -774,6 +831,10 @@
         <span class="led" id="led-shaper" data-state="idle"></span>
         Shaper <span class="state" id="state-shaper">Loads on first use</span>
       </button>
+      <button class="lamp-btn" id="lamp-ocr" type="button" title="Load the text-extraction engine now, before you need it">
+        <span class="led" id="led-ocr" data-state="idle"></span>
+        OCR <span class="state" id="state-ocr">Loads on first use</span>
+      </button>
     </div>
   </section>
 </aside>
@@ -784,31 +845,78 @@
   <p class="notice notice--wide" id="storage-warn" role="alert" hidden></p>
   <p class="work__note">Whisper writes down what you said. A local model shapes it into a prompt worth sending. No audio, no text, no telemetry leaves this machine.</p>
 
-  <!-- ── Capture ───────────────────────────────────────────── -->
+  <!-- ── Source ────────────────────────────────────────────── -->
   <section class="module" aria-labelledby="silk-capture">
     <div class="module__bar">
-      <span class="silk silk--key" id="silk-capture">Capture</span>
+      <span class="silk silk--key" id="silk-capture">Source</span>
       <span class="meta" id="capture-state" role="status">Ready</span>
+      <div class="seg" role="group" aria-label="Input source">
+        <button id="src-voice" class="seg__btn" type="button" aria-pressed="true">Voice</button>
+        <button id="src-image" class="seg__btn" type="button" aria-pressed="false">Image</button>
+      </div>
       <label class="sr-only" for="mic-select">Microphone</label>
       <select id="mic-select" class="push" title="Microphone"><option>Default microphone</option></select>
+      <label class="sr-only" for="ocr-engine">Extraction engine</label>
+      <select id="ocr-engine" class="push" hidden title="Which engine reads the image">
+        <option value="fast">Fast — screenshots</option>
+        <option value="photo">Photo — angled or real-world</option>
+      </select>
     </div>
 
-    <div class="scope">
-      <canvas id="scope" aria-hidden="true"></canvas>
-      <div class="scope__idle" id="scope-idle">No take yet</div>
+    <div id="voice-body">
+      <div class="scope">
+        <canvas id="scope" aria-hidden="true"></canvas>
+        <div class="scope__idle" id="scope-idle">No take yet</div>
+      </div>
+
+      <div class="transport">
+        <button id="btn-record" class="btn-record lit" type="button">
+          <span class="bullet" aria-hidden="true"></span><span id="btn-record-label">Start recording</span>
+        </button>
+        <button id="btn-pause" type="button" hidden>Pause</button>
+        <div class="timecode" id="timecode" aria-hidden="true">0:00.0</div>
+        <button id="btn-clear" class="flat" type="button">Clear</button>
+      </div>
+
+      <div class="progress" id="whisper-progress" hidden><div class="bar"></div></div>
+      <p class="notice" id="capture-error" role="alert" hidden></p>
     </div>
 
-    <div class="transport">
-      <button id="btn-record" class="btn-record lit" type="button">
-        <span class="bullet" aria-hidden="true"></span><span id="btn-record-label">Start recording</span>
-      </button>
-      <button id="btn-pause" type="button" hidden>Pause</button>
-      <div class="timecode" id="timecode" aria-hidden="true">0:00.0</div>
-      <button id="btn-clear" class="flat" type="button">Clear</button>
-    </div>
+    <div id="image-body" hidden>
+      <div class="drop" id="drop" tabindex="0" role="button"
+           aria-label="Drop an image here, or paste one">
+        <img id="img-preview" alt="" hidden>
+        <div class="drop__hint" id="drop-hint">
+          Drop an image, paste with <kbd>⌘</kbd><kbd>V</kbd>, or choose one
+        </div>
+      </div>
 
-    <div class="progress" id="whisper-progress" hidden><div class="bar"></div></div>
-    <p class="notice" id="capture-error" role="alert" hidden></p>
+      <div class="actions">
+        <button id="btn-extract" class="lit" type="button" disabled>Extract text</button>
+        <button id="btn-paste" type="button">Paste</button>
+        <button id="btn-choose" type="button">Choose…</button>
+        <button id="btn-screen" type="button">Screen</button>
+        <button id="btn-img-clear" class="flat" type="button">Clear</button>
+        <span class="meta push" id="extract-state" role="status"></span>
+      </div>
+
+      <input type="file" id="file-input" accept="image/*" hidden>
+      <div class="progress" id="ocr-progress" hidden><div class="bar"></div></div>
+
+      <div class="lcd-frame">
+        <label class="sr-only" for="extracted">Extracted text</label>
+        <textarea id="extracted" class="lcd lcd--mono" spellcheck="false"
+          placeholder="The text found in the image appears here. Editable — OCR mangles names and jargon the same way Whisper does."></textarea>
+      </div>
+
+      <div class="actions">
+        <button id="btn-copy-text" class="lit" type="button" disabled>Copy text</button>
+        <button id="btn-to-transcript" type="button" disabled>Send to transcript</button>
+        <span class="meta push" id="extracted-count">0 words</span>
+      </div>
+
+      <p class="notice" id="extract-error" role="alert" hidden></p>
+    </div>
   </section>
 
   <div class="chain">
@@ -878,8 +986,9 @@
       <span><kbd>⌘</kbd><kbd>↵</kbd> shape</span>
       <span><kbd>⌘</kbd><kbd>⇧</kbd><kbd>↵</kbd> copy prompt</span>
       <span><kbd>Esc</kbd> stop</span>
+      <span><kbd>⌘</kbd><kbd>V</kbd> paste an image</span>
     </div>
-    <p id="engine-note">Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works.</p>
+    <p id="engine-note">Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works. The fast text-extraction engine is vendored in <code>assets/tesseract/</code>, so it never needs the network at all.</p>
     <p>Recording and WebGPU are secure-context features, so open this over <code>http://localhost</code>, <code>https://</code>, or as a double-clicked <code>file://</code> — a bare IP address like <code>http://192.168.1.4:43869</code> silently disables both. WebGPU in Chrome or Edge gets you Whisper large-v3-turbo and the bigger shaping models; without it, both fall back to smaller models on the CPU.</p>
   </footer>
 </main>
@@ -913,8 +1022,14 @@
 // Namespace import, not named: a missing export here would otherwise kill the whole module at link time.
 import * as TF from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2";
 import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.79";
+/* Vendored, not CDN: Tesseract caches only its language data, so a CDN
+   worker and core would make OCR the one part of Vox that needs the network.
+   The ESM build has a default export only — a named import throws. */
+import Tesseract from "./assets/tesseract/tesseract.esm.min.js";
 
-const { pipeline, env, TextStreamer, InterruptableStoppingCriteria } = TF;
+const { pipeline, env, TextStreamer, InterruptableStoppingCriteria,
+        AutoProcessor, AutoTokenizer, Florence2ForConditionalGeneration, RawImage } = TF;
+const { createWorker } = Tesseract;
 env.allowLocalModels = false;
 
 /* ────────────────────────────────────────────────────────────
@@ -966,6 +1081,7 @@ const KEY = {
   draft:     "vox.draft.v1",
   sessions:  "vox.sessions.v1",
   current:   "vox.session.current.v1",
+  srcTab:    "vox.srctab.v1",
 };
 const SESSION_LIMIT = 60;
 /* Writes can fail — a full quota, or a browser that blocks storage outright.
@@ -1163,6 +1279,14 @@ const state = {
 
   sessions: store.get(KEY.sessions, []) || [],
   sessionId: store.get(KEY.current, null),
+
+  image: null,
+  extracting: false,
+  lastExtract: null,
+  tesseract: null,
+  tessLoading: false,
+  florence: null,
+  florenceLoading: false,
 };
 if (!Array.isArray(state.sessions)) state.sessions = [];
 if (!Array.isArray(state.templates) || !state.templates.length) state.templates = structuredClone(DEFAULT_TEMPLATES);
@@ -1203,6 +1327,27 @@ const shapeWarn = $("shape-warn");
 const mdView = $("md-view");
 const btnViewRead = $("view-read");
 const btnViewEdit = $("view-edit");
+
+// Source tabs and the image side
+const btnSrcVoice = $("src-voice");
+const btnSrcImage = $("src-image");
+const voiceBody = $("voice-body");
+const imageBody = $("image-body");
+const ocrEngine = $("ocr-engine");
+const drop = $("drop");
+const dropHint = $("drop-hint");
+const imgPreview = $("img-preview");
+const fileInput = $("file-input");
+const btnExtract = $("btn-extract");
+const btnImgClear = $("btn-img-clear");
+const btnScreen = $("btn-screen");
+const extractState = $("extract-state");
+const extractError = $("extract-error");
+const ocrProgress = $("ocr-progress");
+const extracted = $("extracted");
+const extractedCount = $("extracted-count");
+const btnCopyText = $("btn-copy-text");
+const btnToTranscript = $("btn-to-transcript");
 const tplSelect = $("template-select");
 const modelSelect = $("model-select");
 const btnTemplates = $("btn-templates");
@@ -1216,6 +1361,7 @@ const engineNote = $("engine-note");
 const lamps = {
   whisper: { btn: $("lamp-whisper"), led: $("led-whisper"), state: $("state-whisper") },
   shaper:  { btn: $("lamp-shaper"),  led: $("led-shaper"),  state: $("state-shaper")  },
+  ocr:     { btn: $("lamp-ocr"),     led: $("led-ocr"),     state: $("state-ocr")     },
 };
 
 
@@ -1313,21 +1459,147 @@ function snippet(s) {
   return t.length > 96 ? `${t.slice(0, 96)}…` : t;
 }
 
-/* A long transcript can push the list past quota. Losing the newest session
-   would be the worst outcome, so drop the oldest ones and retry instead. */
+/* Resolution is most of OCR accuracy. Tesseract wants roughly
+   300dpi-equivalent text, so a small screenshot is upscaled rather than fed
+   in at its native size — the commonest failure, and the fix is free.
+   Oversized photos are capped so a 12MP phone shot does not spend a minute
+   in the WASM engine for no gain. */
+const OCR_MAX_EDGE = 2600;
+const OCR_MIN_EDGE = 1000;
+
+function ocrTargetSize(w, h) {
+  const long = Math.max(w, h);
+  if (long > OCR_MAX_EDGE) {
+    const k = OCR_MAX_EDGE / long;
+    const out = { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
+    return { ...out, how: `downscaled ${w}x${h} to ${out.w}x${out.h}` };
+  }
+  if (long < OCR_MIN_EDGE) {
+    const out = { w: w * 2, h: h * 2 };
+    return { ...out, how: `upscaled ${w}x${h} to ${out.w}x${out.h}` };
+  }
+  return { w, h, how: `used at ${w}x${h}` };
+}
+
+/* A session row only has to make an old extraction recognisable, not
+   readable — 256px of JPEG is 10-20KB, which 60 sessions can afford inside
+   the localStorage budget. */
+const THUMB_EDGE = 256;
+
+function thumbTargetSize(w, h) {
+  const long = Math.max(w, h);
+  if (long <= THUMB_EDGE) return { w, h };
+  const k = THUMB_EDGE / long;
+  return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
+}
+
+function makeThumb(canvas) {
+  const { w, h } = thumbTargetSize(canvas.width, canvas.height);
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  c.getContext("2d").drawImage(canvas, 0, 0, w, h);
+  return c.toDataURL("image/jpeg", 0.6);
+}
+
+/* Four ways in — paste, drop, picker, screen grab — all land in loadImage,
+   so the engines never learn where an image came from. `how` is carried
+   through to the log and the status line: knowing an extraction came from a
+   screen grab rather than a file explains a lot when the result is bad. */
+function normalizeForOcr(bitmap) {
+  const { w, h, how } = ocrTargetSize(bitmap.width, bitmap.height);
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const g = canvas.getContext("2d");
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(bitmap, 0, 0, w, h);
+  return { canvas, how };
+}
+
+async function loadImage(blob, how) {
+  setNotice(extractError, "");
+  if (!blob || !blob.type?.startsWith("image/")) {
+    setNotice(extractError, `That ${blob?.type || "item"} is not an image Vox can read.`);
+    return;
+  }
+
+  let bmp;
+  try {
+    bmp = await createImageBitmap(blob);
+  } catch (e) {
+    setNotice(extractError, `That image could not be decoded (${blob.type}, ${Math.round(blob.size / 1024)}KB).`);
+    console.warn("[vox] image decode failed", { how, type: blob.type, bytes: blob.size, error: e.message });
+    return;
+  }
+
+  const { canvas, how: sizing } = normalizeForOcr(bmp);
+  state.image = { canvas, how, sourceW: bmp.width, sourceH: bmp.height, bytes: blob.size };
+  bmp.close?.();
+
+  imgPreview.src = canvas.toDataURL("image/png");
+  imgPreview.hidden = false;
+  dropHint.hidden = true;
+  btnExtract.disabled = false;
+  extractState.textContent = `${how} · ${sizing}`;
+  console.log("[vox] image loaded", { how, sizing, type: blob.type, bytes: blob.size });
+}
+
+function clearImage() {
+  state.image = null;
+  imgPreview.hidden = true;
+  imgPreview.removeAttribute("src");
+  dropHint.hidden = false;
+  btnExtract.disabled = true;
+  extractState.textContent = "";
+  setNotice(extractError, "");
+}
+
+/* Sessions are newest-first, so the oldest thumbnails are at the tail.
+   Returns how many were dropped, because the notice says so. */
+function stripOldestThumbs(sessions, keep) {
+  let n = 0;
+  for (let i = keep; i < sessions.length; i++) {
+    if (sessions[i].thumb) { delete sessions[i].thumb; n++; }
+  }
+  return n;
+}
+
+/* A long transcript, and now a thumbnail per extraction, can push the list
+   past quota. Losing the newest session would be the worst outcome — and
+   losing whole sessions to make room for pictures is nearly as bad, so
+   thumbnails go first. Text outlives pictures. */
 function persistSessions() {
   state.sessions = state.sessions.slice(0, SESSION_LIMIT);
   if (store.set(KEY.sessions, state.sessions)) return true;
 
-  while (state.sessions.length > 3) {
-    state.sessions = state.sessions.slice(0, Math.max(3, Math.floor(state.sessions.length / 2)));
-    if (store.set(KEY.sessions, state.sessions)) return true;
+  /* The ladder strips progressively more, so each pass only finds what the
+     previous one left behind — report the running total, not the last batch. */
+  let dropped = 0;
+  for (const keep of [12, 3, 0]) {
+    dropped += stripOldestThumbs(state.sessions, keep);
+    if (!dropped) continue;
+    if (store.set(KEY.sessions, state.sessions)) {
+      console.warn("[vox] dropped session thumbnails to fit quota", { dropped, thumbsKept: keep });
+      storageProblem = `Browser storage was full, so Vox dropped ${dropped} old session thumbnail${dropped === 1 ? "" : "s"}. The text is untouched.`;
+      renderStorageWarning();
+      return true;
+    }
   }
+
+  while (state.sessions.length > 3) {
+    const before = state.sessions.length;
+    state.sessions = state.sessions.slice(0, Math.max(3, Math.floor(state.sessions.length / 2)));
+    if (store.set(KEY.sessions, state.sessions)) {
+      console.warn("[vox] dropped oldest sessions to fit quota", { from: before, to: state.sessions.length });
+      return true;
+    }
+  }
+  console.error("[vox] could not persist sessions even after dropping everything droppable");
   return false;
 }
 
 function touchSession() {
-  if (!raw.value.trim() && !refined.value.trim()) return;
+  if (!raw.value.trim() && !refined.value.trim() && !extracted.value.trim()) return;
   let s = state.sessions.find(x => x.id === state.sessionId);
   if (!s) {
     s = { id: `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, at: Date.now() };
@@ -1339,6 +1611,12 @@ function touchSession() {
   s.prompt = refined.value;
   s.templateId = state.activeTemplateId;
   s.templateName = activeTemplate()?.name || "";
+  s.extracted = extracted.value;
+  s.ocrEngine = state.lastExtract?.engine || "";
+  /* Only the thumbnail is kept, never the original — a phone photo as a data
+     URL is megabytes, and it would buy only the ability to re-run the other
+     engine later. */
+  if (state.image && extracted.value.trim()) s.thumb = makeThumb(state.image.canvas);
   s.updated = Date.now();
   persistSessions();   // may trim older entries to fit
   renderSessions();
@@ -1357,14 +1635,23 @@ function renderSessions() {
     btn.className = "session" + (s.id === state.sessionId ? " active" : "");
     btn.setAttribute("aria-current", s.id === state.sessionId ? "true" : "false");
 
+    if (s.thumb) {
+      const th = document.createElement("img");
+      th.className = "session__thumb";
+      th.src = s.thumb;
+      th.alt = "";
+      btn.appendChild(th);
+    }
+
     const meta = document.createElement("span");
     meta.className = "session__meta";
     const n = words(s.transcript);
-    meta.textContent = [sessionStamp(s.at), s.templateName, `${n}w`].filter(Boolean).join(" · ");
+    meta.textContent = [sessionStamp(s.at), s.templateName, s.ocrEngine ? `ocr:${s.ocrEngine}` : "", `${n}w`]
+      .filter(Boolean).join(" · ");
 
     const snip = document.createElement("span");
     snip.className = "session__snip";
-    snip.textContent = snippet(s.transcript) || snippet(s.prompt) || "Empty";
+    snip.textContent = snippet(s.transcript) || snippet(s.extracted) || snippet(s.prompt) || "Empty";
 
     btn.append(meta, snip);
     btn.addEventListener("click", () => openSession(s.id));
@@ -1388,8 +1675,16 @@ function openSession(id) {
   if (state.recording) stopRecording({ discard: true });
   raw.value = s.transcript || "";
   refined.value = s.prompt || "";
+  extracted.value = s.extracted || "";
   setCount(rawCount, raw.value);
   setCount(refinedCount, refined.value);
+  setCount(extractedCount, extracted.value);
+  btnCopyText.disabled = !extracted.value.trim();
+  btnToTranscript.disabled = !extracted.value.trim();
+  /* The original image is not stored, only a thumbnail, so there is nothing
+     to extract from — clear the working canvas rather than leave a stale one
+     that Extract would happily re-read. */
+  clearImage();
   btnShape.disabled = !raw.value.trim();
   btnRegen.disabled = !raw.value.trim();
   if (s.templateId && state.templates.some(t => t.id === s.templateId)) {
@@ -1637,6 +1932,183 @@ async function ensureWhisper() {
     hideProgress(whisperProgress);
   }
   return state.transcriber;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Text extraction
+   ──────────────────────────────────────────────────────────── */
+
+/* Everything Tesseract needs is under assets/, so this works with the
+   network unplugged. Language data still lands in IndexedDB on first run;
+   the worker and core come off disk. corePath is a directory, never a single
+   file, so the SIMD tier is still chosen by feature detection. */
+const TESS_PATHS = {
+  workerPath: new URL("./assets/tesseract/worker.min.js", location.href).href,
+  corePath: new URL("./assets/tesseract/core/", location.href).href,
+  langPath: new URL("./assets/tesseract/lang", location.href).href,
+  gzip: true,
+};
+
+async function ensureTesseract() {
+  if (state.tesseract) return state.tesseract;
+  if (state.tessLoading) {
+    while (state.tessLoading) await new Promise(r => setTimeout(r, 100));
+    return state.tesseract;
+  }
+  state.tessLoading = true;
+  lamps.ocr.btn.disabled = true;
+  const started = performance.now();
+  try {
+    setLamp("ocr", "loading", "Starting Tesseract");
+    setProgress(ocrProgress, 0);
+    state.tesseract = await createWorker("eng", 1, {
+      ...TESS_PATHS,
+      logger: (m) => {
+        if (typeof m.progress === "number") setProgress(ocrProgress, m.progress);
+      },
+    });
+
+    /* Tesseract's default global Otsu threshold is computed over the whole
+       image, so a screenshot holding both a bright panel and a dark one gets
+       a threshold that suits neither and returns *nothing at all* — silently,
+       on one of the commonest things anyone wants text out of. LeptonicaOtsu
+       thresholds in tiles instead. Measured on assets/ocr-sample-darkmode.png:
+       0 characters with the default, 561 at 83% confidence with this. */
+    await state.tesseract.setParameters({ thresholding_method: "1" });
+
+    setLamp("ocr", "ready", "Tesseract");
+    console.log("[vox] tesseract ready", { ms: Math.round(performance.now() - started) });
+    return state.tesseract;
+  } catch (e) {
+    setLamp("ocr", "off", "Failed to load");
+    lamps.ocr.btn.disabled = false;
+    console.error("[vox] tesseract load failed", { error: e.message, corePath: TESS_PATHS.corePath });
+    throw e;
+  } finally {
+    state.tessLoading = false;
+    hideProgress(ocrProgress);
+  }
+}
+
+/* Loading is separated from reading so the duration the interface reports
+   means inference, not a 357MB download. Both loaders are idempotent, so
+   extractText calling them again costs nothing. */
+function ensureOcrEngine(engine) {
+  return engine === "photo" ? ensureFlorence() : ensureTesseract();
+}
+
+/* One entry point, engine as an argument, so the caller never branches on
+   which engine is in use. Confidence comes back only from the fast engine —
+   Florence-2 does not report one, hence the null. */
+async function extractText(canvas, engine) {
+  if (engine === "photo") return extractWithFlorence(canvas);
+
+  const worker = await ensureTesseract();
+  const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+  const found = (data.blocks || []).flatMap(b =>
+    (b.paragraphs || []).flatMap(par => (par.lines || []).flatMap(l => l.words || [])));
+  const confidence = found.length
+    ? found.reduce((a, w) => a + (w.confidence ?? 0), 0) / found.length
+    : (typeof data.confidence === "number" ? data.confidence : null);
+
+  console.log("[vox] extracted with tesseract", {
+    chars: (data.text || "").length,
+    words: found.length,
+    confidence: confidence == null ? null : Math.round(confidence),
+  });
+  return { text: (data.text || "").trim(), confidence, engine: "fast" };
+}
+
+const FLORENCE = "onnx-community/Florence-2-base-ft";
+
+/* Florence-2 on WASM means a ~1.09GB fp32 download, which is not a real
+   option, so Photo mode is WebGPU-only and says so rather than starting a
+   download it cannot finish. pipeline() does not support Florence-2 in any
+   version, so the Auto classes are used directly. */
+async function ensureFlorence() {
+  if (state.florence) return state.florence;
+  if (state.florenceLoading) {
+    while (state.florenceLoading) await new Promise(r => setTimeout(r, 100));
+    return state.florence;
+  }
+  if (!GPU.ok) throw new Error("Photo mode needs WebGPU. Use Fast, or open Vox in Chrome or Edge.");
+
+  state.florenceLoading = true;
+  lamps.ocr.btn.disabled = true;
+  const started = performance.now();
+  try {
+    setLamp("ocr", "loading", "Downloading Florence-2");
+    setProgress(ocrProgress, 0);
+
+    let half = false;
+    try {
+      const adapter = await navigator.gpu.requestAdapter();
+      half = !!adapter?.features?.has("shader-f16");
+    } catch { half = false; }
+
+    /* embed_tokens at q4 is byte-identical to fp32 in this repo, so q4 there
+       buys nothing — fp16 when the adapter advertises it, fp32 otherwise. */
+    const dtype = {
+      embed_tokens: half ? "fp16" : "fp32",
+      vision_encoder: half ? "fp16" : "fp32",
+      encoder_model: "q4",
+      decoder_model_merged: "q4",
+    };
+
+    const opts = {
+      device: "webgpu",
+      dtype,
+      progress_callback: (p) => {
+        if (p.status === "progress" && typeof p.progress === "number") setProgress(ocrProgress, p.progress / 100);
+        else if (p.status === "ready") setProgress(ocrProgress, 1);
+      },
+    };
+
+    const [processor, tokenizer, model] = await Promise.all([
+      AutoProcessor.from_pretrained(FLORENCE),
+      AutoTokenizer.from_pretrained(FLORENCE),
+      Florence2ForConditionalGeneration.from_pretrained(FLORENCE, opts),
+    ]);
+
+    state.florence = { processor, tokenizer, model, half };
+    setLamp("ocr", "ready", half ? "Florence-2 fp16" : "Florence-2 fp32");
+    console.log("[vox] florence-2 ready", { half, ms: Math.round(performance.now() - started) });
+    return state.florence;
+  } catch (e) {
+    setLamp("ocr", "off", "Florence-2 failed");
+    lamps.ocr.btn.disabled = false;
+    console.error("[vox] florence-2 load failed", { error: e.message });
+    throw e;
+  } finally {
+    state.florenceLoading = false;
+    hideProgress(ocrProgress);
+  }
+}
+
+/* The <OCR> task prompt and its post-processing type come from the model
+   repo's preprocessor_config.json, not from the library. */
+async function extractWithFlorence(canvas) {
+  const { processor, tokenizer, model } = await ensureFlorence();
+  const task = "<OCR>";
+  const started = performance.now();
+
+  const image = await RawImage.fromCanvas(canvas);
+  const vision = await processor(image);
+  const prompts = processor.construct_prompts(task);
+  const textInputs = tokenizer(prompts);
+
+  const ids = await model.generate({
+    ...textInputs, ...vision,
+    max_new_tokens: 1024, num_beams: 1, do_sample: false,
+  });
+  const decoded = tokenizer.batch_decode(ids, { skip_special_tokens: false })[0];
+  const out = processor.post_process_generation(decoded, task, image.size);
+  const text = (out[task] || "").trim();
+
+  console.log("[vox] extracted with florence-2", {
+    chars: text.length, ms: Math.round(performance.now() - started),
+  });
+  return { text, confidence: null, engine: "photo" };
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -2261,10 +2733,240 @@ function setPromptView(mode, { remember = true } = {}) {
   btnViewEdit.setAttribute("aria-pressed", String(!read));
   if (remember) store.set(KEY.view, mode);
 }
+
+/* The two sources hold their state independently — a loaded waveform and a
+   loaded image both survive a tab switch, because losing either to a stray
+   click would be infuriating. Only visibility moves. */
+function sourceTab() {
+  return store.get(KEY.srcTab, "voice") === "image" ? "image" : "voice";
+}
+
+function setSourceTab(which, { remember = true } = {}) {
+  const image = which === "image";
+  voiceBody.hidden = image;
+  imageBody.hidden = !image;
+  micSelect.hidden = image;
+  ocrEngine.hidden = !image;
+  btnSrcVoice.setAttribute("aria-pressed", String(!image));
+  btnSrcImage.setAttribute("aria-pressed", String(image));
+  if (remember) store.set(KEY.srcTab, image ? "image" : "voice");
+}
 const promptView = () => (btnViewRead.getAttribute("aria-pressed") === "true" ? "read" : "edit");
 
 btnViewRead.addEventListener("click", () => setPromptView("read"));
 btnViewEdit.addEventListener("click", () => { setPromptView("edit"); refined.focus(); });
+
+btnSrcVoice.addEventListener("click", () => setSourceTab("voice"));
+btnSrcImage.addEventListener("click", () => setSourceTab("image"));
+
+/* Paste is the path this feature exists for — a screenshot you just took, or
+   a picture copied out of a chat — so it listens on the document and only
+   bows out when the user is typing into a field. */
+addEventListener("paste", (e) => {
+  if (sourceTab() !== "image") return;
+  const t = e.target;
+  if (t && (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable)) return;
+  const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/"));
+  if (!item) return;
+  e.preventDefault();
+  loadImage(item.getAsFile(), "pasted");
+});
+
+$("btn-paste").addEventListener("click", async () => {
+  try {
+    for (const item of await navigator.clipboard.read()) {
+      const type = item.types.find(t => t.startsWith("image/"));
+      if (type) return loadImage(await item.getType(type), "pasted");
+    }
+    setNotice(extractError, "No image on the clipboard. Copy one, then try again.");
+  } catch (e) {
+    setNotice(extractError, `This browser would not hand over the clipboard (${e.name}). Press ⌘V or Ctrl+V instead.`);
+  }
+});
+
+for (const ev of ["dragenter", "dragover"]) {
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("is-over"); });
+}
+for (const ev of ["dragleave", "drop"]) {
+  drop.addEventListener(ev, () => drop.classList.remove("is-over"));
+}
+
+drop.addEventListener("drop", async (e) => {
+  e.preventDefault();
+  const file = [...(e.dataTransfer?.files || [])].find(f => f.type.startsWith("image/"));
+  if (file) return loadImage(file, "dropped");
+
+  /* A drag from another browser tab carries a URL, not a file. Best effort:
+     the fetch can fail on CORS or offline, and saying so beats a dead target. */
+  /* Files but no image among them is a different mistake from a drag that
+     carried no file at all, and naming the type saves a second attempt. */
+  const files = [...(e.dataTransfer?.files || [])];
+  if (files.length) {
+    const kinds = [...new Set(files.map(f => f.type || "unknown type"))].join(", ");
+    setNotice(extractError, `Dropped ${files.length} file${files.length === 1 ? "" : "s"} (${kinds}), none of them an image Vox can read.`);
+    console.warn("[vox] drop had no usable image", { files: files.length, kinds });
+    return;
+  }
+
+  const url = e.dataTransfer?.getData("text/uri-list") || e.dataTransfer?.getData("text/plain");
+  if (!url) { setNotice(extractError, "Nothing image-shaped in that drop."); return; }
+  try {
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadImage(await res.blob(), "dragged from another tab");
+  } catch (err) {
+    setNotice(extractError, `That image is on another site and it refused the request (${err.message}). Save it and choose the file instead.`);
+    console.warn("[vox] cross-origin image drop failed", { url, error: err.message });
+  }
+});
+
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+});
+$("btn-choose").addEventListener("click", () => fileInput.click());
+
+fileInput.addEventListener("change", () => {
+  const f = fileInput.files?.[0];
+  if (f) loadImage(f, `chose ${f.name}`);
+  fileInput.value = "";
+});
+
+/* Screen capture is a secure-context feature, exactly like the microphone,
+   so it disables itself for the same reason rather than failing at the click.
+   The track is stopped the moment the frame is grabbed — nobody wants a
+   sharing indicator left burning. */
+btnScreen.addEventListener("click", async () => {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    video.muted = true;
+    await video.play();
+    await new Promise(r => requestAnimationFrame(r));
+    const c = document.createElement("canvas");
+    c.width = video.videoWidth;
+    c.height = video.videoHeight;
+    c.getContext("2d").drawImage(video, 0, 0);
+    const blob = await new Promise(r => c.toBlob(r, "image/png"));
+    await loadImage(blob, "grabbed from screen");
+  } catch (e) {
+    if (e.name !== "NotAllowedError") {
+      setNotice(extractError, `Screen capture failed (${e.name}).`);
+      console.warn("[vox] getDisplayMedia failed", { error: e.name });
+    }
+  } finally {
+    stream?.getTracks().forEach(t => t.stop());
+  }
+});
+
+btnImgClear.addEventListener("click", clearImage);
+
+/* Says which engine ran, how confident it was, and — when the answer is
+   nothing — says that instead of blanking the box. An empty result is a
+   result, and silently clearing the previous one would lose work. */
+const OCR_LOW_CONFIDENCE = 60;
+
+async function runExtract() {
+  if (!state.image || state.extracting) return;
+  state.extracting = true;
+  btnExtract.disabled = true;
+  setNotice(extractError, "");
+
+  const engine = ocrEngine.value;
+  const name = engine === "photo" ? "Florence-2" : "Tesseract";
+  setProgress(ocrProgress, null);
+
+  try {
+    /* Load first, time second. On a cold cache Florence-2 is a 357MB
+       download, and folding that into the extraction duration would report a
+       number that says nothing about how fast reading actually is. */
+    if ((engine === "photo" && !state.florence) || (engine === "fast" && !state.tesseract)) {
+      extractState.textContent = `Loading ${name}…`;
+    }
+    await ensureOcrEngine(engine);
+
+    extractState.textContent = `Reading with ${name}…`;
+    setProgress(ocrProgress, null);
+    const started = performance.now();
+    const res = await extractText(state.image.canvas, engine);
+    const ms = Math.round(performance.now() - started);
+
+    if (!res.text) {
+      extractState.textContent = `No text found (${res.engine}, ${ms}ms)`;
+      setNotice(extractError, engine === "fast"
+        ? "No text found. If this is a photo rather than a screenshot, try Photo mode."
+        : "No text found in that image.");
+      console.log("[vox] extraction empty", { engine: res.engine, ms, how: state.image.how });
+      return;
+    }
+
+    extracted.value = res.text;
+    setCount(extractedCount, res.text);
+    btnCopyText.disabled = false;
+    btnToTranscript.disabled = false;
+    state.lastExtract = res;
+
+    const conf = res.confidence == null ? "" : ` · ${Math.round(res.confidence)}% confidence`;
+    extractState.textContent = `${words(res.text)} words in ${ms}ms (${res.engine})${conf}`;
+    if (res.confidence != null && res.confidence < OCR_LOW_CONFIDENCE) {
+      setNotice(extractError,
+        `Confidence is ${Math.round(res.confidence)}%, so this text is probably unreliable. Photo mode handles angled and low-contrast images better.`);
+    }
+    console.log("[vox] extraction done", {
+      engine: res.engine, ms, chars: res.text.length,
+      confidence: res.confidence == null ? null : Math.round(res.confidence),
+      how: state.image.how,
+    });
+    touchSession();
+    backlight(extracted);
+  } catch (e) {
+    extractState.textContent = "Extraction failed";
+    setNotice(extractError, e.message);
+    console.error("[vox] extraction failed", { engine, error: e.message });
+  } finally {
+    state.extracting = false;
+    btnExtract.disabled = !state.image;
+    hideProgress(ocrProgress);
+  }
+}
+
+btnExtract.addEventListener("click", runExtract);
+
+btnCopyText.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(extracted.value);
+    extractState.textContent = "Copied";
+  } catch {
+    extracted.select();
+    setNotice(extractError, "This browser blocked the clipboard. The text is selected — press ⌘C or Ctrl+C.");
+  }
+});
+
+/* Appends exactly the way a second voice take appends, so everything
+   downstream — shaping, templates, sessions — needs no idea that some of the
+   transcript came out of a picture. */
+btnToTranscript.addEventListener("click", () => {
+  const text = extracted.value.trim();
+  if (!text) return;
+  raw.value = raw.value.trim() ? `${raw.value.trim()}\n\n${text}` : text;
+  setCount(rawCount, raw.value);
+  btnShape.disabled = false;
+  btnRegen.disabled = false;
+  store.set(KEY.draft, { raw: raw.value, refined: refined.value });
+  touchSession();
+  extractState.textContent = "Sent to transcript";
+  backlight(raw);
+  console.log("[vox] extraction sent to transcript", { chars: text.length });
+});
+
+extracted.addEventListener("input", () => {
+  setCount(extractedCount, extracted.value);
+  const empty = !extracted.value.trim();
+  btnCopyText.disabled = empty;
+  btnToTranscript.disabled = empty;
+});
 
 btnCopyRaw.addEventListener("click", () => copyText(raw.value, btnCopyRaw));
 btnCopyRefined.addEventListener("click", () => copyText(refined.value, btnCopyRefined));
@@ -2272,6 +2974,8 @@ btnShape.addEventListener("click", () => state.shaping ? stopShaping() : shapePr
 btnRegen.addEventListener("click", () => { if (!state.shaping) shapePrompt(); });
 
 btnPause.addEventListener("click", () => state.paused ? resumeRecording() : pauseRecording());
+
+lamps.ocr.btn.addEventListener("click", () => { ensureTesseract().catch(() => {}); });
 
 lamps.whisper.btn.addEventListener("click", () => {
   ensureWhisper().catch(e => setNotice(captureError, `Transcription model didn't load: ${e.message}`));
@@ -2456,17 +3160,131 @@ $("tpl-restore").addEventListener("click", () => {
 });
 
 /* ────────────────────────────────────────────────────────────
+   Self-test
+
+   Vox is one file with no build step, so there is nowhere for a test
+   runner to live. The tests ship with the app and run at ?test=1,
+   which is also the only way to exercise the pure geometry and
+   eviction helpers without standing up a browser harness.
+   ──────────────────────────────────────────────────────────── */
+const TESTS = [];
+function test(name, fn) { TESTS.push({ name, fn }); }
+
+function ok(cond, msg) {
+  if (!cond) throw new Error(msg || "expected truthy");
+}
+function eq(actual, expected, msg) {
+  const a = JSON.stringify(actual), b = JSON.stringify(expected);
+  if (a !== b) throw new Error(`${msg || "mismatch"}: got ${a}, want ${b}`);
+}
+
+async function runTests() {
+  const lines = [];
+  let pass = 0, fail = 0;
+  for (const t of TESTS) {
+    try {
+      await t.fn();
+      pass++; lines.push(`  ok   ${t.name}`);
+    } catch (e) {
+      fail++; lines.push(`  FAIL ${t.name}\n         ${e.message}`);
+    }
+  }
+  const box = document.createElement("pre");
+  box.style.cssText = "position:fixed;inset:0;z-index:9999;margin:0;padding:24px;" +
+    "overflow:auto;background:#0d0f0a;color:#d8dcc8;font:12px/1.6 ui-monospace,monospace;white-space:pre-wrap";
+  box.textContent = [`${pass} passed, ${fail} failed`, "", ...lines].join("\n");
+  document.body.appendChild(box);
+  console.log(`[vox tests] ${pass} passed, ${fail} failed`);
+}
+
+test("harness runs", () => { eq(1 + 1, 2, "arithmetic"); });
+
+test("ocrTargetSize leaves a well-sized image alone", () => {
+  eq(ocrTargetSize(1600, 900), { w: 1600, h: 900, how: "used at 1600x900" });
+});
+test("ocrTargetSize caps the long edge at 2600", () => {
+  eq(ocrTargetSize(5200, 2600), { w: 2600, h: 1300, how: "downscaled 5200x2600 to 2600x1300" });
+});
+test("ocrTargetSize caps on height when the image is tall", () => {
+  eq(ocrTargetSize(1000, 5200), { w: 500, h: 2600, how: "downscaled 1000x5200 to 500x2600" });
+});
+test("ocrTargetSize doubles a small image", () => {
+  eq(ocrTargetSize(400, 300), { w: 800, h: 600, how: "upscaled 400x300 to 800x600" });
+});
+test("ocrTargetSize treats 1000 as big enough", () => {
+  eq(ocrTargetSize(1000, 200), { w: 1000, h: 200, how: "used at 1000x200" });
+});
+test("ocrTargetSize survives a 1px image", () => {
+  eq(ocrTargetSize(1, 1), { w: 2, h: 2, how: "upscaled 1x1 to 2x2" });
+});
+
+test("thumbTargetSize caps the long edge at 256", () => {
+  eq(thumbTargetSize(1024, 512), { w: 256, h: 128 });
+});
+test("thumbTargetSize caps on height for a tall image", () => {
+  eq(thumbTargetSize(512, 1024), { w: 128, h: 256 });
+});
+test("thumbTargetSize never upscales", () => {
+  eq(thumbTargetSize(100, 80), { w: 100, h: 80 });
+});
+test("thumbTargetSize keeps at least one pixel", () => {
+  eq(thumbTargetSize(4000, 3), { w: 256, h: 1 });
+});
+test("stripOldestThumbs keeps the newest thumbnails", () => {
+  const s = [{ thumb: "a" }, { thumb: "b" }, { thumb: "c" }, { thumb: "d" }];
+  eq(stripOldestThumbs(s, 2), 2, "stripped count");
+  eq(s.map(x => x.thumb || null), ["a", "b", null, null], "which survived");
+});
+test("stripOldestThumbs reports zero when there is nothing to strip", () => {
+  const s = [{ thumb: "a" }, {}];
+  eq(stripOldestThumbs(s, 5), 0, "stripped count");
+  eq(s.map(x => x.thumb || null), ["a", null], "untouched");
+});
+test("stripOldestThumbs can strip everything", () => {
+  const s = [{ thumb: "a" }, { thumb: "b" }];
+  eq(stripOldestThumbs(s, 0), 2, "stripped count");
+  eq(s.map(x => x.thumb || null), [null, null], "all gone");
+});
+test("normalizeForOcr upscales a small bitmap onto a canvas", async () => {
+  const c = document.createElement("canvas");
+  c.width = 300; c.height = 200;
+  c.getContext("2d").fillRect(0, 0, 300, 200);
+  const bmp = await createImageBitmap(c);
+  const out = normalizeForOcr(bmp);
+  eq([out.canvas.width, out.canvas.height], [600, 400], "canvas size");
+  eq(out.how, "upscaled 300x200 to 600x400", "description");
+});
+test("makeThumb returns a small JPEG data URL", () => {
+  const c = document.createElement("canvas");
+  c.width = 1200; c.height = 600;
+  const g = c.getContext("2d");
+  g.fillStyle = "#345"; g.fillRect(0, 0, 1200, 600);
+  const url = makeThumb(c);
+  ok(url.startsWith("data:image/jpeg;base64,"), `wrong prefix: ${url.slice(0, 32)}`);
+  ok(url.length < 60000, `thumb too big: ${url.length} chars`);
+});
+
+/* The module suspends on the top-level `await probeGPU()` above, and the
+   document fires `load` while it is suspended — so by the time this runs,
+   `load` has usually already gone. Check readyState rather than trusting
+   the event to still be coming. */
+if (new URLSearchParams(location.search).has("test")) {
+  if (document.readyState === "complete") runTests();
+  else addEventListener("load", runTests);
+}
+
+/* ────────────────────────────────────────────────────────────
    Boot
    ──────────────────────────────────────────────────────────── */
 function applyGPUState() {
   if (GPU.ok) {
     setLamp("whisper", "idle", "Loads on first use");
     setLamp("shaper", "idle", "Loads on first use");
-    engineNote.textContent = "Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works.";
+    engineNote.textContent = "Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works. The fast text-extraction engine is vendored, so it never needs the network at all.";
   } else {
     setLamp("whisper", "idle", "CPU — base.en");
     setLamp("shaper", "idle", "CPU — small model");
-    engineNote.textContent = `No WebGPU here, so Whisper runs base.en and shaping runs a 0.5B model — both on the CPU, both slower. ${GPU.reason}`;
+    engineNote.textContent = `No WebGPU here, so Whisper runs base.en and shaping runs a 0.5B model — both on the CPU, both slower, and image extraction is limited to the fast engine. ${GPU.reason}`;
   }
   lamps.shaper.btn.disabled = false;
 }
@@ -2475,6 +3293,18 @@ renderTemplateSelect();
 renderModelSelect();
 renderSessions();
 setPromptView(store.get(KEY.view, "read"), { remember: false });
+setSourceTab(sourceTab(), { remember: false });
+/* Never offer a 357MB download that cannot run. */
+if (!GPU.ok) {
+  const photo = ocrEngine.querySelector('option[value="photo"]');
+  photo.disabled = true;
+  photo.textContent = "Photo — needs WebGPU";
+}
+
+if (!navigator.mediaDevices?.getDisplayMedia) {
+  btnScreen.disabled = true;
+  btnScreen.title = "Screen capture needs a secure context — see the note at the foot of the page";
+}
 applyGPUState();
 sizeScope();
 setCount(rawCount, raw.value);
