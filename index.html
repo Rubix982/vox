@@ -986,8 +986,9 @@
       <span><kbd>⌘</kbd><kbd>↵</kbd> shape</span>
       <span><kbd>⌘</kbd><kbd>⇧</kbd><kbd>↵</kbd> copy prompt</span>
       <span><kbd>Esc</kbd> stop</span>
+      <span><kbd>⌘</kbd><kbd>V</kbd> paste an image</span>
     </div>
-    <p id="engine-note">Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works.</p>
+    <p id="engine-note">Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works. The fast text-extraction engine is vendored in <code>assets/tesseract/</code>, so it never needs the network at all.</p>
     <p>Recording and WebGPU are secure-context features, so open this over <code>http://localhost</code>, <code>https://</code>, or as a double-clicked <code>file://</code> — a bare IP address like <code>http://192.168.1.4:43869</code> silently disables both. WebGPU in Chrome or Edge gets you Whisper large-v3-turbo and the bigger shaping models; without it, both fall back to smaller models on the CPU.</p>
   </footer>
 </main>
@@ -1966,6 +1967,15 @@ async function ensureTesseract() {
         if (typeof m.progress === "number") setProgress(ocrProgress, m.progress);
       },
     });
+
+    /* Tesseract's default global Otsu threshold is computed over the whole
+       image, so a screenshot holding both a bright panel and a dark one gets
+       a threshold that suits neither and returns *nothing at all* — silently,
+       on one of the commonest things anyone wants text out of. LeptonicaOtsu
+       thresholds in tiles instead. Measured on assets/ocr-sample-darkmode.png:
+       0 characters with the default, 561 at 83% confidence with this. */
+    await state.tesseract.setParameters({ thresholding_method: "1" });
+
     setLamp("ocr", "ready", "Tesseract");
     console.log("[vox] tesseract ready", { ms: Math.round(performance.now() - started) });
     return state.tesseract;
@@ -3270,11 +3280,11 @@ function applyGPUState() {
   if (GPU.ok) {
     setLamp("whisper", "idle", "Loads on first use");
     setLamp("shaper", "idle", "Loads on first use");
-    engineNote.textContent = "Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works.";
+    engineNote.textContent = "Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works. The fast text-extraction engine is vendored, so it never needs the network at all.";
   } else {
     setLamp("whisper", "idle", "CPU — base.en");
     setLamp("shaper", "idle", "CPU — small model");
-    engineNote.textContent = `No WebGPU here, so Whisper runs base.en and shaping runs a 0.5B model — both on the CPU, both slower. ${GPU.reason}`;
+    engineNote.textContent = `No WebGPU here, so Whisper runs base.en and shaping runs a 0.5B model — both on the CPU, both slower, and image extraction is limited to the fast engine. ${GPU.reason}`;
   }
   lamps.shaper.btn.disabled = false;
 }
