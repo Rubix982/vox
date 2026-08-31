@@ -79,8 +79,13 @@ async function runTests() {
   console.log(`[vox tests] ${pass} passed, ${fail} failed`);
 }
 
+/* The module suspends on the top-level `await probeGPU()` at line 955, and
+   the document fires `load` while it is suspended — so by the time this
+   runs, `load` has usually already gone. Check readyState rather than
+   trusting the event to still be coming. */
 if (new URLSearchParams(location.search).has("test")) {
-  addEventListener("load", runTests);
+  if (document.readyState === "complete") runTests();
+  else addEventListener("load", runTests);
 }
 ```
 

@@ -2456,6 +2456,55 @@ $("tpl-restore").addEventListener("click", () => {
 });
 
 /* ────────────────────────────────────────────────────────────
+   Self-test
+
+   Vox is one file with no build step, so there is nowhere for a test
+   runner to live. The tests ship with the app and run at ?test=1,
+   which is also the only way to exercise the pure geometry and
+   eviction helpers without standing up a browser harness.
+   ──────────────────────────────────────────────────────────── */
+const TESTS = [];
+function test(name, fn) { TESTS.push({ name, fn }); }
+
+function ok(cond, msg) {
+  if (!cond) throw new Error(msg || "expected truthy");
+}
+function eq(actual, expected, msg) {
+  const a = JSON.stringify(actual), b = JSON.stringify(expected);
+  if (a !== b) throw new Error(`${msg || "mismatch"}: got ${a}, want ${b}`);
+}
+
+async function runTests() {
+  const lines = [];
+  let pass = 0, fail = 0;
+  for (const t of TESTS) {
+    try {
+      await t.fn();
+      pass++; lines.push(`  ok   ${t.name}`);
+    } catch (e) {
+      fail++; lines.push(`  FAIL ${t.name}\n         ${e.message}`);
+    }
+  }
+  const box = document.createElement("pre");
+  box.style.cssText = "position:fixed;inset:0;z-index:9999;margin:0;padding:24px;" +
+    "overflow:auto;background:#0d0f0a;color:#d8dcc8;font:12px/1.6 ui-monospace,monospace;white-space:pre-wrap";
+  box.textContent = [`${pass} passed, ${fail} failed`, "", ...lines].join("\n");
+  document.body.appendChild(box);
+  console.log(`[vox tests] ${pass} passed, ${fail} failed`);
+}
+
+test("harness runs", () => { eq(1 + 1, 2, "arithmetic"); });
+
+/* The module suspends on the top-level `await probeGPU()` above, and the
+   document fires `load` while it is suspended — so by the time this runs,
+   `load` has usually already gone. Check readyState rather than trusting
+   the event to still be coming. */
+if (new URLSearchParams(location.search).has("test")) {
+  if (document.readyState === "complete") runTests();
+  else addEventListener("load", runTests);
+}
+
+/* ────────────────────────────────────────────────────────────
    Boot
    ──────────────────────────────────────────────────────────── */
 function applyGPUState() {
