@@ -689,20 +689,38 @@ if (!window.crossOriginIsolated && window.isSecureContext && "serviceWorker" in 
 
   dialog.rack.about { width: min(680px, 94vw); }
   dialog.rack.about .rack__body { display: block; overflow-y: auto; min-height: 0; }
+  /* Shaped like the lamps so it reads as a control, not as more tagline —
+     it's the only way back to the summary once the first-visit one closes. */
   .about-link {
-    margin-top: 12px;
-    padding: 0;
-    background: none;
-    border: 0;
-    color: var(--ink-dim);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 5px 13px 5px 5px;
+    background: var(--chassis-lo);
+    border: 1px solid var(--edge);
+    border-radius: 999px;
+    color: var(--ink);
     font-family: var(--display);
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.1em;
     text-transform: uppercase;
     cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
   }
-  .about-link:hover { color: var(--lamp); }
+  .about-link:hover { border-color: var(--lamp-deep); color: var(--lamp); }
+  .about-link__badge {
+    display: grid;
+    place-items: center;
+    width: 17px; height: 17px;
+    border-radius: 50%;
+    background: var(--lamp);
+    color: var(--rail);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
 
   /* ---------- Signal chain divider ---------- */
 
@@ -902,7 +920,7 @@ if (!window.crossOriginIsolated && window.isSecureContext && "serviceWorker" in 
   <header class="brand">
     <h1 class="mark">VOX</h1>
     <p class="tagline">Speak the instruction.<br>Paste the prompt.</p>
-    <button id="btn-about" class="about-link" type="button">About Vox →</button>
+    <button id="btn-about" class="about-link" type="button"><span class="about-link__badge" aria-hidden="true">?</span>What is Vox?</button>
   </header>
 
   <button id="btn-new-session" class="lit" type="button">New session</button>
