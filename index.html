@@ -674,29 +674,21 @@ if (!window.crossOriginIsolated && window.isSecureContext && "serviceWorker" in 
   .md-view hr { border: 0; border-top: 1px solid #cfccb9; margin: 16px 0; }
   .md-view .md-empty { color: var(--lcd-dim); }
 
-  /* The README, rendered by the same code in document mode: there, # is the
-     title, ## a section rule and ### a subhead, and tables, links and
-     images exist. Shaped prompts never get any of the three. */
-  .md-doc { max-height: none; min-height: 0; padding: 26px 32px 34px; font-size: 15px; }
+  /* The About summary borrows the prompt view's typography: h2 is the title,
+     h3 the section rule. */
+  .md-doc { max-height: none; min-height: 0; padding: 26px 32px 30px; font-size: 15px; }
   .md-doc h2 {
     font-size: 30px; letter-spacing: 0.02em; text-transform: none; color: var(--lcd-ink);
     border: 0; margin: 0 0 8px; padding: 0;
   }
-  .md-doc h3 { font-size: 12px; margin: 30px 0 10px; }
-  .md-doc h4 { font-size: 15px; margin: 20px 0 6px; }
-  .md-doc a { color: #8a5a12; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .md-doc h3 { font-size: 12px; margin: 24px 0 8px; }
+  .md-doc .lede { font-size: 16.5px; color: #2a2b22; }
+  .md-doc .more { margin: 24px 0 0; padding-top: 14px; border-top: 1px solid #cfccb9; color: var(--lcd-dim); }
+  .md-doc a { color: #8a5a12; font-weight: 600; text-decoration-thickness: 1px; text-underline-offset: 2px; }
   .md-doc a:hover { color: var(--lcd-ink); }
-  .md-doc img {
-    display: block; max-width: 100%; height: auto; margin: 6px 0 14px;
-    border: 1px solid #cfccb9; border-radius: var(--radius);
-  }
-  .md-doc .md-table { overflow-x: auto; margin: 0 0 14px; }
-  .md-doc table { border-collapse: collapse; font-size: 13.5px; min-width: 60%; }
-  .md-doc th, .md-doc td { text-align: left; padding: 6px 12px 6px 0; border-bottom: 1px solid #cfccb9; vertical-align: top; }
-  .md-doc th { font-family: var(--display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6d6a56; }
 
-  dialog.about { width: min(860px, 94vw); }
-  dialog.about .rack__body { display: block; overflow-y: auto; min-height: 0; }
+  dialog.rack.about { width: min(680px, 94vw); }
+  dialog.rack.about .rack__body { display: block; overflow-y: auto; min-height: 0; }
   .about-link {
     margin-top: 12px;
     padding: 0;
@@ -1104,11 +1096,29 @@ if (!window.crossOriginIsolated && window.isSecureContext && "serviceWorker" in 
 <dialog id="about-dialog" class="rack about" aria-label="About Vox">
   <div class="rack__head">
     <strong class="silk silk--key">About</strong>
-    <span class="meta">The README, as it ships with this copy.</span>
     <button id="about-close" class="lit push" type="button">Done</button>
   </div>
   <div class="rack__body">
-    <article id="about-body" class="md-view md-doc"></article>
+    <article class="md-view md-doc">
+      <h2>Vox</h2>
+      <p class="lede">Speak a long, detailed instruction instead of typing it. Vox writes down what you said and shapes it into a clear prompt, ready to paste into your LM.</p>
+
+      <h3>How it works</h3>
+      <ol>
+        <li><strong>Speak.</strong> Record a take. Whisper turns it into an editable transcript — fix names and jargon there.</li>
+        <li><strong>Shape.</strong> A small language model rewrites the transcript using a template: plain cleanup, a coding task, or a bug report. Templates are editable.</li>
+        <li><strong>Paste.</strong> Copy the prompt into whatever LM you work with.</li>
+      </ol>
+      <p>The <strong>Image</strong> tab does the same for text in a screenshot or photo.</p>
+
+      <h3>Private by construction</h3>
+      <p>Every model runs in this browser, on this machine. Nothing you say, type, or paste is sent anywhere, and the page's security policy makes the browser refuse any connection except the one-time model downloads from Hugging Face.</p>
+
+      <h3>First use</h3>
+      <p>Models download once and stay in browser storage — after that Vox works offline and loads in seconds. Hover a light under <strong>Machine</strong> to see each model's size. Chrome or Edge with WebGPU gets the larger, faster models; elsewhere they run on the CPU.</p>
+
+      <p class="more"><a href="https://github.com/Rubix982/vox#readme" target="_blank" rel="noopener noreferrer">The full README on GitHub</a> — design decisions, benchmarks, and how to run your own copy.</p>
+    </article>
   </div>
 </dialog>
 
@@ -2727,33 +2737,14 @@ function tidyOutput(text) {
    ──────────────────────────────────────────────────────────── */
 const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-/* Only http(s) and relative URLs; anything with another scheme (javascript:,
-   data:) is dropped. Quotes can't reach the attribute: the patterns below
-   exclude them from URLs. */
-const safeUrl = (u) => /^https?:\/\//i.test(u) || !/^[a-z][a-z0-9+.-]*:/i.test(u);
-
-/* Links and images exist only in document mode (the README). A shaped prompt
-   is model output, and it never gets to put a clickable link or a remote
-   image in front of anyone. */
-function inlineMd(s, doc = false) {
-  let html = escapeHtml(s)
+function inlineMd(s) {
+  return escapeHtml(s)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
-  if (doc) {
-    html = html
-      .replace(/!\[([^\]]*)\]\(([^)\s"]+)\)/g, (m, alt, url) =>
-        safeUrl(url) ? `<img src="${url}" alt="${alt}" loading="lazy">` : alt)
-      .replace(/\[([^\]]+)\]\(([^)\s"]+)\)/g, (m, text, url) =>
-        safeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>` : text);
-  }
-  return html;
 }
 
-const tableCells = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
-
-function renderMarkdown(src, { doc = false } = {}) {
-  const inline = (t) => inlineMd(t, doc);
+function renderMarkdown(src) {
   const lines = (src || "").replace(/\r/g, "").split("\n");
   const out = [];
   let list = null;
@@ -2774,22 +2765,11 @@ function renderMarkdown(src, { doc = false } = {}) {
       continue;
     }
 
-    if (doc && /^\s*\|.*\|\s*$/.test(line) && /^\s*\|?\s*:?-{3,}/.test(lines[i + 1] || "")) {
-      closeList();
-      const head = tableCells(line);
-      i += 2;
-      const rows = [];
-      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) rows.push(tableCells(lines[i++]));
-      out.push(`<div class="md-table"><table><thead><tr>${head.map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead>` +
-        `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
-      continue;
-    }
-
     const heading = line.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
       closeList();
       const level = Math.min(6, heading[1].length + 1); // no second <h1> on the page
-      out.push(`<h${level}>${inline(heading[2].replace(/\s+#+\s*$/, ""))}</h${level}>`);
+      out.push(`<h${level}>${inlineMd(heading[2].replace(/\s+#+\s*$/, ""))}</h${level}>`);
       i++;
       continue;
     }
@@ -2797,13 +2777,13 @@ function renderMarkdown(src, { doc = false } = {}) {
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { closeList(); out.push("<hr>"); i++; continue; }
 
     const bullet = line.match(/^\s*[-*+]\s+(.*)$/);
-    if (bullet) { openList("ul"); out.push(`<li>${inline(bullet[1])}</li>`); i++; continue; }
+    if (bullet) { openList("ul"); out.push(`<li>${inlineMd(bullet[1])}</li>`); i++; continue; }
 
     const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
-    if (numbered) { openList("ol"); out.push(`<li>${inline(numbered[1])}</li>`); i++; continue; }
+    if (numbered) { openList("ol"); out.push(`<li>${inlineMd(numbered[1])}</li>`); i++; continue; }
 
     const quote = line.match(/^\s*>\s?(.*)$/);
-    if (quote) { closeList(); out.push(`<blockquote>${inline(quote[1])}</blockquote>`); i++; continue; }
+    if (quote) { closeList(); out.push(`<blockquote>${inlineMd(quote[1])}</blockquote>`); i++; continue; }
 
     if (!line.trim()) { closeList(); i++; continue; }
 
@@ -2813,8 +2793,7 @@ function renderMarkdown(src, { doc = false } = {}) {
     while (i < lines.length && lines[i].trim() && !/^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```)/.test(lines[i])) {
       para.push(lines[i++]);
     }
-    // A document wraps its source lines; a shaped prompt's line breaks are meant.
-    out.push(doc ? `<p>${inline(para.join(" "))}</p>` : `<p>${inline(para.join("\n")).replace(/\n/g, "<br>")}</p>`);
+    out.push(`<p>${inlineMd(para.join("\n")).replace(/\n/g, "<br>")}</p>`);
   }
   closeList();
   return out.join("\n");
@@ -3331,20 +3310,9 @@ for (const which of Object.keys(lamps)) {
   btn.addEventListener("blur", hideLampCard);
 }
 
-/* About: the README rendered in place. Fetched from this same copy, so it
-   always describes the build being looked at, and the CSP needs nothing new. */
+/* About: a short summary in the page itself; the full README is linked. */
 const aboutDialog = $("about-dialog");
-const aboutBody = $("about-body");
-async function openAbout() {
-  if (!aboutBody.childElementCount) {
-    try {
-      const res = await fetch("README.md");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      aboutBody.innerHTML = renderMarkdown(await res.text(), { doc: true });
-    } catch (e) {
-      aboutBody.innerHTML = `<p class="md-empty">The README couldn't be loaded (${escapeHtml(e.message)}). It's in the repository beside index.html.</p>`;
-    }
-  }
+function openAbout() {
   if (!aboutDialog.open) aboutDialog.showModal();
   aboutDialog.querySelector(".rack__body").scrollTop = 0;
 }
@@ -3567,20 +3535,6 @@ async function runTests() {
 }
 
 test("harness runs", () => { eq(1 + 1, 2, "arithmetic"); });
-test("renderMarkdown keeps links and images out of shaped prompts", () => {
-  const html = renderMarkdown("see [here](https://example.com) ![x](a.png)");
-  ok(!html.includes("<a ") && !html.includes("<img"), html);
-});
-test("renderMarkdown renders links, images and tables in doc mode", () => {
-  const html = renderMarkdown("[docs](samples.md) ![shot](assets/image.png)\n\n| A | B |\n| --- | --- |\n| 1 | `2` |", { doc: true });
-  ok(html.includes('<a href="samples.md"'), "link");
-  ok(html.includes('<img src="assets/image.png" alt="shot"'), "image");
-  ok(html.includes("<th>A</th>") && html.includes("<td><code>2</code></td>"), "table");
-});
-test("renderMarkdown drops non-http schemes in doc mode", () => {
-  const html = renderMarkdown("[x](javascript:alert(1))", { doc: true });
-  ok(!html.includes("<a ") && !html.includes("javascript"), html);
-});
 
 test("ocrTargetSize leaves a well-sized image alone", () => {
   eq(ocrTargetSize(1600, 900), { w: 1600, h: 900, how: "used at 1600x900" });
