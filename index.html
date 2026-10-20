@@ -8,16 +8,41 @@
      Face (and the hf.co CDN it redirects to) for model weights, and GitHub raw
      for WebLLM's compiled model libraries. Neither receives audio or text; a
      request anywhere else is refused, whatever the code tries. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob: data: https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob: data: https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Vox — speak the instruction, paste the prompt</title>
 <meta name="description" content="Vox turns spoken instructions into structured prompts for your LM. Whisper transcribes, a local model shapes. Nothing leaves your device.">
+<script>
+/* Multithreaded CPU inference needs cross-origin isolation, and static hosts
+   can't send the headers for it, so sw.js adds them. The page that registered
+   the worker was served without them, hence one reload — once per tab
+   session, so a browser that won't isolate never loops. */
+if (!window.crossOriginIsolated && window.isSecureContext && "serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).then(() => {
+    if (window.crossOriginIsolated) return;
+    try {
+      if (sessionStorage.getItem("vox.coi-reload")) return;
+      sessionStorage.setItem("vox.coi-reload", "1");
+    } catch { return; }
+    location.reload();
+  }).catch((e) => console.warn("[vox] service worker unavailable; CPU runs single-threaded", e.message));
+}
+</script>
 <!-- Inline, so the browser never falls back to requesting /favicon.ico. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23e8a33d'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- Fonts are the one network request that isn't a model download; offline, the fallbacks below take over cleanly. -->
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
+  /* Vendored from Google Fonts (latin subset, OFL — licences beside the files),
+     so opening Vox tells no one. Archivo and Plex Sans are variable fonts:
+     one file serves every weight. */
+  @font-face { font-family: 'Archivo'; font-style: normal; font-weight: 400; font-display: swap; src: url(assets/fonts/archivo.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'Archivo'; font-style: normal; font-weight: 600; font-display: swap; src: url(assets/fonts/archivo.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'Archivo'; font-style: normal; font-weight: 700; font-display: swap; src: url(assets/fonts/archivo.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url(assets/fonts/ibm-plex-mono-400.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url(assets/fonts/ibm-plex-mono-500.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url(assets/fonts/ibm-plex-mono-600.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url(assets/fonts/ibm-plex-sans.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 500; font-display: swap; src: url(assets/fonts/ibm-plex-sans.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 600; font-display: swap; src: url(assets/fonts/ibm-plex-sans.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
   :root {
     /* Chassis */
     --rail:        #0c0d0b;
@@ -649,6 +674,44 @@
   .md-view hr { border: 0; border-top: 1px solid #cfccb9; margin: 16px 0; }
   .md-view .md-empty { color: var(--lcd-dim); }
 
+  /* The README, rendered by the same code in document mode: there, # is the
+     title, ## a section rule and ### a subhead, and tables, links and
+     images exist. Shaped prompts never get any of the three. */
+  .md-doc { max-height: none; min-height: 0; padding: 26px 32px 34px; font-size: 15px; }
+  .md-doc h2 {
+    font-size: 30px; letter-spacing: 0.02em; text-transform: none; color: var(--lcd-ink);
+    border: 0; margin: 0 0 8px; padding: 0;
+  }
+  .md-doc h3 { font-size: 12px; margin: 30px 0 10px; }
+  .md-doc h4 { font-size: 15px; margin: 20px 0 6px; }
+  .md-doc a { color: #8a5a12; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .md-doc a:hover { color: var(--lcd-ink); }
+  .md-doc img {
+    display: block; max-width: 100%; height: auto; margin: 6px 0 14px;
+    border: 1px solid #cfccb9; border-radius: var(--radius);
+  }
+  .md-doc .md-table { overflow-x: auto; margin: 0 0 14px; }
+  .md-doc table { border-collapse: collapse; font-size: 13.5px; min-width: 60%; }
+  .md-doc th, .md-doc td { text-align: left; padding: 6px 12px 6px 0; border-bottom: 1px solid #cfccb9; vertical-align: top; }
+  .md-doc th { font-family: var(--display); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #6d6a56; }
+
+  dialog.about { width: min(860px, 94vw); }
+  dialog.about .rack__body { display: block; overflow-y: auto; min-height: 0; }
+  .about-link {
+    margin-top: 12px;
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--ink-dim);
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .about-link:hover { color: var(--lamp); }
+
   /* ---------- Signal chain divider ---------- */
 
   .chain {
@@ -847,6 +910,7 @@
   <header class="brand">
     <h1 class="mark">VOX</h1>
     <p class="tagline">Speak the instruction.<br>Paste the prompt.</p>
+    <button id="btn-about" class="about-link" type="button">About Vox →</button>
   </header>
 
   <button id="btn-new-session" class="lit" type="button">New session</button>
@@ -897,6 +961,8 @@
       </div>
       <label class="sr-only" for="mic-select">Microphone</label>
       <select id="mic-select" class="push" title="Microphone"><option>Default microphone</option></select>
+      <label class="sr-only" for="whisper-select">Transcription model</label>
+      <select id="whisper-select" title="Transcription model: larger is more accurate, smaller loads faster"></select>
       <label class="sr-only" for="ocr-engine">Extraction engine</label>
       <select id="ocr-engine" class="push" hidden title="Which engine reads the image">
         <option value="fast">Fast — screenshots</option>
@@ -1035,6 +1101,17 @@
 </main>
 
 <!-- ── Template rack ────────────────────────────────────────── -->
+<dialog id="about-dialog" class="rack about" aria-label="About Vox">
+  <div class="rack__head">
+    <strong class="silk silk--key">About</strong>
+    <span class="meta">The README, as it ships with this copy.</span>
+    <button id="about-close" class="lit push" type="button">Done</button>
+  </div>
+  <div class="rack__body">
+    <article id="about-body" class="md-view md-doc"></article>
+  </div>
+</dialog>
+
 <dialog id="template-dialog" class="rack" aria-label="Templates">
   <div class="rack__head">
     <strong class="silk silk--key">Templates</strong>
@@ -1072,8 +1149,9 @@ import * as webllm from "./assets/web-llm/web-llm.js";
    The ESM build has a default export only — a named import throws. */
 import Tesseract from "./assets/tesseract/tesseract.esm.min.js";
 
-const { pipeline, env, TextStreamer, InterruptableStoppingCriteria,
-        AutoProcessor, AutoTokenizer, Florence2ForConditionalGeneration, RawImage } = TF;
+/* The models themselves run in workers (workers/models.js, workers/webllm.js);
+   the page keeps the libraries only for their cache checks and model lists. */
+const { env } = TF;
 const { createWorker } = Tesseract;
 env.allowLocalModels = false;
 /* Otherwise onnxruntime fetches its 21MB WASM from jsDelivr, which is both a
@@ -1124,6 +1202,8 @@ const KEY = {
   templates: "vox.templates.v4",
   active:    "vox.template.active.v4",
   model:     "vox.model.v1",
+  whisper:   "vox.whisper.v1",
+  aboutSeen: "vox.about.seen.v1",
   autoShape: "vox.autoshape.v1",
   view:      "vox.promptview.v1",
   draft:     "vox.draft.v1",
@@ -1298,13 +1378,15 @@ const state = {
   startedAt: 0,
   elapsed: 0,
   tick: null,
-  stopper: null,
 
   transcriber: null,
+  whisperWorker: null,
+  whisperKey: null,
   whisperLoading: false,
   whisperLarge: false,
 
   engine: null,
+  engineWorker: null,
   engineModelId: null,
   engineLoading: false,
   shaping: false,
@@ -1356,6 +1438,7 @@ const sessionEmpty = $("session-empty");
 const sessionCount = $("session-count");
 const btnNewSession = $("btn-new-session");
 const micSelect = $("mic-select");
+const whisperSelect = $("whisper-select");
 const scope = $("scope");
 const scopeIdle = $("scope-idle");
 const whisperProgress = $("whisper-progress");
@@ -1435,17 +1518,18 @@ function hideProgress(el) { el.hidden = true; el.classList.remove("sweeping"); }
 /* Both libraries report a cache hit and a network fetch identically, so the
    lamp has to ask the cache itself whether "Downloading" is true. An .onnx
    weight file is required, not just any file: an interrupted first download
-   leaves configs behind and would otherwise read as cached. */
-async function isCached(modelId, backend = "transformers") {
+   leaves configs behind and would otherwise read as cached. `file` names the
+   exact weight file when one repo serves several sizes (Whisper Turbo does). */
+async function isCached(modelId, backend = "transformers", file = null) {
   try {
     if (backend === "webllm") return await webllm.hasModelInCache(modelId);
     const cache = await caches.open("transformers-cache");
     const keys = await cache.keys();
-    return keys.some(r => r.url.includes(`/${modelId}/`) && r.url.endsWith(".onnx"));
+    return keys.some(r => r.url.includes(`/${modelId}/`) && (file ? r.url.endsWith(`/${file}`) : r.url.endsWith(".onnx")));
   } catch { return false; }
 }
-async function loadVerb(modelId, backend) {
-  if (await isCached(modelId, backend)) return "Loading";
+async function loadVerb(modelId, backend, file) {
+  if (await isCached(modelId, backend, file)) return "Loading";
   requestPersistence();
   return "Downloading";
 }
@@ -1976,37 +2060,116 @@ function stopTimer() {
 /* ────────────────────────────────────────────────────────────
    Whisper
    ──────────────────────────────────────────────────────────── */
-const WHISPER_GPU = "onnx-community/whisper-large-v3-turbo";
-const WHISPER_CPU = "Xenova/whisper-base.en";
+/* Each transformers.js model gets its own worker (workers/models.js), so
+   loading or running one never freezes the page and two can load at once.
+   Resolves to a handle once the model is ready; terminating the handle is
+   how a model is unloaded. */
+const MODEL_WORKER = new URL("./workers/models.js", location.href);
+
+function spawnModel(kind, id, options, onProgress) {
+  const worker = new Worker(MODEL_WORKER, { type: "module" });
+  const pending = new Map();
+  let seq = 0, onToken = null;
+  worker.onmessage = ({ data }) => {
+    if (data.op === "progress") return onProgress?.(data.p);
+    if (data.op === "token") return onToken?.(data.text);
+    const call = pending.get(data.id);
+    if (!call) return;
+    pending.delete(data.id);
+    data.ok ? call.resolve(data.value) : call.reject(new Error(data.error));
+  };
+  worker.onerror = (e) => {
+    for (const call of pending.values()) call.reject(new Error(e.message || "The model worker crashed."));
+    pending.clear();
+  };
+  const call = (op, args = {}) => new Promise((resolve, reject) => {
+    const n = ++seq;
+    pending.set(n, { resolve, reject });
+    worker.postMessage({ id: n, op, ...args });
+  });
+  const handle = { call, onToken: (fn) => { onToken = fn; }, terminate: () => worker.terminate() };
+  // `model`, not `id`: id is the message counter and would be overwritten.
+  return call("load", { kind, model: id, options }).then(
+    (timing) => { handle.timing = timing; return handle; },
+    (e) => { worker.terminate(); throw e; },
+  );
+}
+
+const progressInto = (el) => (p) => {
+  if (p.status === "progress" && typeof p.progress === "number") setProgress(el, p.progress / 100);
+  else if (p.status === "ready") setProgress(el, 1);
+};
+
+/* Sizes are the two files each option actually fetches (encoder + merged
+   decoder at the dtypes below), from the Hugging Face repos. `probe` is the
+   encoder file, which tells Turbo and Turbo light apart in the cache. */
+const WHISPER_MODELS = [
+  { key: "turbo",       label: "Turbo",       gpu: true,  size: "≈1.6 GB", id: "onnx-community/whisper-large-v3-turbo",
+    dtype: { encoder_model: "fp16",  decoder_model_merged: "q4" }, probe: "onnx/encoder_model_fp16.onnx" },
+  { key: "turbo-light", label: "Turbo light", gpu: true,  size: "≈700 MB", id: "onnx-community/whisper-large-v3-turbo",
+    dtype: { encoder_model: "q4f16", decoder_model_merged: "q4" }, probe: "onnx/encoder_model_q4f16.onnx" },
+  { key: "small",       label: "Small",       gpu: true,  size: "≈410 MB", id: "Xenova/whisper-small.en",
+    dtype: { encoder_model: "fp16",  decoder_model_merged: "q4" }, probe: "onnx/encoder_model_fp16.onnx" },
+  { key: "base",        label: "Base",        gpu: true,  size: "≈206 MB", id: "Xenova/whisper-base.en",
+    dtype: { encoder_model: "fp32",  decoder_model_merged: "q4" }, probe: "onnx/encoder_model.onnx" },
+  { key: "small-cpu",   label: "Small",       gpu: false, size: "≈249 MB", id: "Xenova/whisper-small.en",
+    dtype: "q8", probe: "onnx/encoder_model_quantized.onnx" },
+  { key: "base-cpu",    label: "Base",        gpu: false, size: "≈77 MB",  id: "Xenova/whisper-base.en",
+    dtype: "q8", probe: "onnx/encoder_model_quantized.onnx" },
+];
+const WHISPER_DEFAULT = { gpu: "turbo-light", cpu: "base-cpu" };
+
+function whisperChoices() { return WHISPER_MODELS.filter(m => m.gpu === GPU.ok); }
+function whisperSpec() {
+  return whisperChoices().find(m => m.key === whisperSelect.value)
+      || WHISPER_MODELS.find(m => m.key === WHISPER_DEFAULT[GPU.ok ? "gpu" : "cpu"]);
+}
+function renderWhisperSelect() {
+  const saved = store.get(KEY.whisper, null);
+  whisperSelect.innerHTML = "";
+  for (const m of whisperChoices()) {
+    const opt = document.createElement("option");
+    opt.value = m.key;
+    opt.textContent = `Whisper ${m.label} · ${m.size}`;
+    whisperSelect.append(opt);
+  }
+  const keys = whisperChoices().map(m => m.key);
+  whisperSelect.value = keys.includes(saved) ? saved : WHISPER_DEFAULT[GPU.ok ? "gpu" : "cpu"];
+}
+function dropWhisper() {
+  state.whisperWorker?.terminate();
+  state.whisperWorker = null;
+  state.transcriber = null;
+  state.whisperKey = null;
+}
 
 async function ensureWhisper() {
-  if (state.transcriber) return state.transcriber;
+  const spec = whisperSpec();
+  if (state.transcriber && state.whisperKey === spec.key) return state.transcriber;
   if (state.whisperLoading) {
     while (state.whisperLoading) await new Promise(r => setTimeout(r, 100));
     if (!state.transcriber) throw new Error("The transcription model failed to load. Reload the page to try again.");
     return state.transcriber;
   }
+  dropWhisper();
   state.whisperLoading = true;
   lamps.whisper.btn.disabled = true;
+  const started = performance.now();
   try {
-    state.whisperLarge = GPU.ok;
-    const verb = await loadVerb(GPU.ok ? WHISPER_GPU : WHISPER_CPU);
-    setLamp("whisper", "loading", GPU.ok ? `${verb} large-v3-turbo` : `${verb} base.en`);
+    // large-v3 is multilingual and must be told; the .en models only speak English.
+    state.whisperLarge = spec.id.includes("large");
+    setLamp("whisper", "loading", `${await loadVerb(spec.id, "transformers", spec.probe)} ${spec.label}`);
     setProgress(whisperProgress, 0);
 
-    const options = GPU.ok
-      ? { device: "webgpu", dtype: { encoder_model: "fp16", decoder_model_merged: "q4" } }
-      : { device: "wasm", dtype: "q8" };
-
-    state.transcriber = await pipeline("automatic-speech-recognition", GPU.ok ? WHISPER_GPU : WHISPER_CPU, {
-      ...options,
-      progress_callback: (p) => {
-        if (p.status === "progress" && typeof p.progress === "number") setProgress(whisperProgress, p.progress / 100);
-        else if (p.status === "ready") setProgress(whisperProgress, 1);
-      },
-    });
-    setLamp("whisper", "ready", GPU.ok ? "large-v3-turbo" : "base.en on CPU");
+    const m = await spawnModel("asr", spec.id,
+      { device: spec.gpu ? "webgpu" : "wasm", dtype: spec.dtype }, progressInto(whisperProgress));
+    state.whisperWorker = m;
+    state.whisperKey = spec.key;
+    state.transcriber = async (audio, options) => (await m.call("transcribe", { audio, options }));
+    console.log("[vox] whisper ready", { model: spec.key, ...m.timing, totalMs: Math.round(performance.now() - started) });
+    setLamp("whisper", "ready", spec.gpu ? `${spec.label}` : `${spec.label} on CPU`);
   } catch (e) {
+    dropWhisper();
     setLamp("whisper", "off", "Failed to load");
     lamps.whisper.btn.disabled = false;
     throw e;
@@ -2138,24 +2301,10 @@ async function ensureFlorence() {
       decoder_model_merged: "q4",
     };
 
-    const opts = {
-      device: "webgpu",
-      dtype,
-      progress_callback: (p) => {
-        if (p.status === "progress" && typeof p.progress === "number") setProgress(ocrProgress, p.progress / 100);
-        else if (p.status === "ready") setProgress(ocrProgress, 1);
-      },
-    };
-
-    const [processor, tokenizer, model] = await Promise.all([
-      AutoProcessor.from_pretrained(FLORENCE),
-      AutoTokenizer.from_pretrained(FLORENCE),
-      Florence2ForConditionalGeneration.from_pretrained(FLORENCE, opts),
-    ]);
-
-    state.florence = { processor, tokenizer, model, half };
+    const m = await spawnModel("florence", FLORENCE, { device: "webgpu", dtype }, progressInto(ocrProgress));
+    state.florence = { worker: m, half };
     setLamp("ocr", "ready", half ? "Florence-2 fp16" : "Florence-2 fp32");
-    console.log("[vox] florence-2 ready", { half, ms: Math.round(performance.now() - started) });
+    console.log("[vox] florence-2 ready", { half, ...m.timing, totalMs: Math.round(performance.now() - started) });
     return state.florence;
   } catch (e) {
     setLamp("ocr", "off", "Florence-2 failed");
@@ -2168,25 +2317,13 @@ async function ensureFlorence() {
   }
 }
 
-/* The <OCR> task prompt and its post-processing type come from the model
-   repo's preprocessor_config.json, not from the library. */
+/* The pixels go to the worker as RGBA, which is what RawImage.fromCanvas
+   would have read; the task prompt and post-processing live there too. */
 async function extractWithFlorence(canvas) {
-  const { processor, tokenizer, model } = await ensureFlorence();
-  const task = "<OCR>";
+  const { worker } = await ensureFlorence();
   const started = performance.now();
-
-  const image = await RawImage.fromCanvas(canvas);
-  const vision = await processor(image);
-  const prompts = processor.construct_prompts(task);
-  const textInputs = tokenizer(prompts);
-
-  const ids = await model.generate({
-    ...textInputs, ...vision,
-    max_new_tokens: 1024, num_beams: 1, do_sample: false,
-  });
-  const decoded = tokenizer.batch_decode(ids, { skip_special_tokens: false })[0];
-  const out = processor.post_process_generation(decoded, task, image.size);
-  const text = (out[task] || "").trim();
+  const { data, width, height } = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+  const text = await worker.call("ocr", { data, width, height });
 
   console.log("[vox] extracted with florence-2", {
     chars: text.length, ms: Math.round(performance.now() - started),
@@ -2416,8 +2553,8 @@ async function decodeTo16kMono(blob) {
 /* Two backends. WebLLM is fast but needs WebGPU; transformers.js runs a small
    model on the CPU so shaping still works on machines that don't have it. */
 const GPU_WISHLIST = [
-  { id: "Llama-3.2-3B-Instruct-q4f16_1-MLC",  label: "Llama 3.2 3B" },
   { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",  label: "Qwen2.5 1.5B" },
+  { id: "Llama-3.2-3B-Instruct-q4f16_1-MLC",  label: "Llama 3.2 3B" },
   { id: "Llama-3.2-1B-Instruct-q4f32_1-MLC",  label: "Llama 3.2 1B" },
   { id: "gemma-2-2b-it-q4f16_1-MLC",          label: "Gemma 2 2B" },
 ];
@@ -2458,11 +2595,14 @@ function renderModelSelect() {
   modelSelect.disabled = MODELS.length < 2;
 }
 
+/* Terminating the worker is what actually frees the model's memory;
+   unload() alone leaves the worker and its GPU device alive. */
 function dropEngine() {
-  const old = state.engine;
+  const old = state.engine, worker = state.engineWorker;
   state.engine = null;
+  state.engineWorker = null;
   state.engineModelId = null;
-  if (old) { try { old.unload?.(); } catch {} }
+  Promise.resolve(old?.unload?.()).catch(() => {}).finally(() => worker?.terminate());
 }
 
 modelSelect.addEventListener("change", () => {
@@ -2492,22 +2632,25 @@ async function ensureShaper() {
     setLamp("shaper", "loading", `${await loadVerb(spec.id, spec.backend === "cpu" ? "transformers" : "webllm")} ${spec.label}`);
     setProgress(shapeProgress, 0);
 
+    const started = performance.now();
     if (spec.backend === "cpu") {
-      state.engine = await pipeline("text-generation", spec.id, {
-        device: "wasm",
-        dtype: "q4",
-        progress_callback: (p) => {
-          if (p.status === "progress" && typeof p.progress === "number") setProgress(shapeProgress, p.progress / 100);
-          else if (p.status === "ready") setProgress(shapeProgress, 1);
-        },
-      });
+      const m = await spawnModel("textgen", spec.id, { device: "wasm", dtype: "q4" }, progressInto(shapeProgress));
+      state.engineWorker = m;
+      state.engine = {
+        generate: (messages, options, onToken) => { m.onToken(onToken); return m.call("generate", { messages, options }); },
+        interruptGenerate: () => m.call("interrupt"),
+      };
+      console.log("[vox] shaper ready", { model: spec.id, ...m.timing, totalMs: Math.round(performance.now() - started) });
     } else {
-      state.engine = await webllm.CreateMLCEngine(wanted, {
+      const worker = new Worker(new URL("./workers/webllm.js", location.href), { type: "module" });
+      state.engineWorker = worker;
+      state.engine = await webllm.CreateWebWorkerMLCEngine(worker, wanted, {
         initProgressCallback: (report) => {
           if (typeof report.progress === "number") setProgress(shapeProgress, report.progress);
           if (report.text) shapeState.textContent = report.text.length > 70 ? report.text.slice(0, 70) + "…" : report.text;
         },
       });
+      console.log("[vox] shaper ready", { model: wanted, totalMs: Math.round(performance.now() - started) });
     }
 
     state.engineModelId = wanted;
@@ -2562,8 +2705,7 @@ function setShapeButton(mode) {
 }
 function stopShaping() {
   state.shapeAborted = true;
-  try { state.engine?.interruptGenerate?.(); } catch {}
-  try { state.stopper?.interrupt?.(); } catch {}
+  try { Promise.resolve(state.engine?.interruptGenerate?.()).catch(() => {}); } catch {}
 }
 
 /* Small models like to wrap output in a fence or open with "Sure, here's…". */
@@ -2585,14 +2727,33 @@ function tidyOutput(text) {
    ──────────────────────────────────────────────────────────── */
 const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function inlineMd(s) {
-  return escapeHtml(s)
+/* Only http(s) and relative URLs; anything with another scheme (javascript:,
+   data:) is dropped. Quotes can't reach the attribute: the patterns below
+   exclude them from URLs. */
+const safeUrl = (u) => /^https?:\/\//i.test(u) || !/^[a-z][a-z0-9+.-]*:/i.test(u);
+
+/* Links and images exist only in document mode (the README). A shaped prompt
+   is model output, and it never gets to put a clickable link or a remote
+   image in front of anyone. */
+function inlineMd(s, doc = false) {
+  let html = escapeHtml(s)
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,;:!?]|$)/g, "$1<em>$2</em>");
+  if (doc) {
+    html = html
+      .replace(/!\[([^\]]*)\]\(([^)\s"]+)\)/g, (m, alt, url) =>
+        safeUrl(url) ? `<img src="${url}" alt="${alt}" loading="lazy">` : alt)
+      .replace(/\[([^\]]+)\]\(([^)\s"]+)\)/g, (m, text, url) =>
+        safeUrl(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>` : text);
+  }
+  return html;
 }
 
-function renderMarkdown(src) {
+const tableCells = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+
+function renderMarkdown(src, { doc = false } = {}) {
+  const inline = (t) => inlineMd(t, doc);
   const lines = (src || "").replace(/\r/g, "").split("\n");
   const out = [];
   let list = null;
@@ -2613,11 +2774,22 @@ function renderMarkdown(src) {
       continue;
     }
 
+    if (doc && /^\s*\|.*\|\s*$/.test(line) && /^\s*\|?\s*:?-{3,}/.test(lines[i + 1] || "")) {
+      closeList();
+      const head = tableCells(line);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) rows.push(tableCells(lines[i++]));
+      out.push(`<div class="md-table"><table><thead><tr>${head.map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead>` +
+        `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+      continue;
+    }
+
     const heading = line.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {
       closeList();
       const level = Math.min(6, heading[1].length + 1); // no second <h1> on the page
-      out.push(`<h${level}>${inlineMd(heading[2].replace(/\s+#+\s*$/, ""))}</h${level}>`);
+      out.push(`<h${level}>${inline(heading[2].replace(/\s+#+\s*$/, ""))}</h${level}>`);
       i++;
       continue;
     }
@@ -2625,13 +2797,13 @@ function renderMarkdown(src) {
     if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { closeList(); out.push("<hr>"); i++; continue; }
 
     const bullet = line.match(/^\s*[-*+]\s+(.*)$/);
-    if (bullet) { openList("ul"); out.push(`<li>${inlineMd(bullet[1])}</li>`); i++; continue; }
+    if (bullet) { openList("ul"); out.push(`<li>${inline(bullet[1])}</li>`); i++; continue; }
 
     const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
-    if (numbered) { openList("ol"); out.push(`<li>${inlineMd(numbered[1])}</li>`); i++; continue; }
+    if (numbered) { openList("ol"); out.push(`<li>${inline(numbered[1])}</li>`); i++; continue; }
 
     const quote = line.match(/^\s*>\s?(.*)$/);
-    if (quote) { closeList(); out.push(`<blockquote>${inlineMd(quote[1])}</blockquote>`); i++; continue; }
+    if (quote) { closeList(); out.push(`<blockquote>${inline(quote[1])}</blockquote>`); i++; continue; }
 
     if (!line.trim()) { closeList(); i++; continue; }
 
@@ -2641,7 +2813,8 @@ function renderMarkdown(src) {
     while (i < lines.length && lines[i].trim() && !/^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```)/.test(lines[i])) {
       para.push(lines[i++]);
     }
-    out.push(`<p>${inlineMd(para.join("\n")).replace(/\n/g, "<br>")}</p>`);
+    // A document wraps its source lines; a shaped prompt's line breaks are meant.
+    out.push(doc ? `<p>${inline(para.join(" "))}</p>` : `<p>${inline(para.join("\n")).replace(/\n/g, "<br>")}</p>`);
   }
   closeList();
   return out.join("\n");
@@ -2702,25 +2875,13 @@ async function generateOnGPU(engine, messages) {
 
 async function generateOnCPU(generator, messages) {
   let buf = "";
-  const streamer = new TextStreamer(generator.tokenizer, {
-    skip_prompt: true,
-    skip_special_tokens: true,
-    callback_function: (text) => { if (text) onDelta(buf += text); },
-  });
-  state.stopper = InterruptableStoppingCriteria ? new InterruptableStoppingCriteria() : null;
-  try {
-    await generator(messages, {
-      max_new_tokens: 1024,
-      do_sample: true,
-      temperature: 0.2,
-      top_p: 0.9,
-      repetition_penalty: 1.03,
-      streamer,
-      ...(state.stopper ? { stopping_criteria: state.stopper } : {}),
-    });
-  } finally {
-    state.stopper = null;
-  }
+  await generator.generate(messages, {
+    max_new_tokens: 1024,
+    do_sample: true,
+    temperature: 0.2,
+    top_p: 0.9,
+    repetition_penalty: 1.03,
+  }, (text) => onDelta(buf += text));
 }
 
 async function shapePrompt() {
@@ -2836,6 +2997,7 @@ function setSourceTab(which, { remember = true } = {}) {
   voiceBody.hidden = image;
   imageBody.hidden = !image;
   micSelect.hidden = image;
+  whisperSelect.hidden = image;
   ocrEngine.hidden = !image;
   btnSrcVoice.setAttribute("aria-pressed", String(!image));
   btnSrcImage.setAttribute("aria-pressed", String(image));
@@ -3078,7 +3240,7 @@ lamps.whisper.btn.addEventListener("click", () => {
 lamps.shaper.btn.addEventListener("click", async () => {
   const wasOk = GPU.ok;
   await probeGPU();
-  if (GPU.ok !== wasOk) { renderModelSelect(); applyGPUState(); }
+  if (GPU.ok !== wasOk) { renderModelSelect(); renderWhisperSelect(); applyGPUState(); }
   if (!GPU.ok) setNotice(shapeError, `Faster GPU shaping is unavailable. ${GPU.reason} The CPU model in the list still works.`);
   else setNotice(shapeError, "");
   ensureShaper().catch(e => setNotice(shapeError, e.message));
@@ -3095,15 +3257,15 @@ document.body.append(lampCard);
 
 async function lampDetails(which) {
   if (which === "whisper") {
-    const id = GPU.ok ? WHISPER_GPU : WHISPER_CPU;
+    const spec = whisperSpec();
     return {
       title: "Whisper — speech to text",
-      body: "Turns your recording into the transcript. Starts loading the moment you press record, so it's ready when you stop.",
+      body: "Turns your recording into the transcript. Larger models are more accurate; smaller ones load faster. Change it in the menu beside the microphone.",
       rows: [
-        ["Model", GPU.ok ? "large-v3-turbo" : "base.en"],
-        ["Runs on", GPU.ok ? "GPU (WebGPU)" : "CPU"],
-        ["Download", GPU.ok ? "≈1.6 GB" : "≈77 MB"],
-        ["Stored", state.transcriber ? "loaded" : (await isCached(id)) ? "cached" : "not yet"],
+        ["Model", `${spec.label} (${spec.id.split("/")[1]})`],
+        ["Runs on", spec.gpu ? "GPU (WebGPU)" : "CPU"],
+        ["Download", spec.size],
+        ["Stored", state.whisperKey === spec.key ? "loaded" : (await isCached(spec.id, "transformers", spec.probe)) ? "cached" : "not yet"],
       ],
     };
   }
@@ -3168,6 +3330,36 @@ for (const which of Object.keys(lamps)) {
   btn.addEventListener("mouseleave", hideLampCard);
   btn.addEventListener("blur", hideLampCard);
 }
+
+/* About: the README rendered in place. Fetched from this same copy, so it
+   always describes the build being looked at, and the CSP needs nothing new. */
+const aboutDialog = $("about-dialog");
+const aboutBody = $("about-body");
+async function openAbout() {
+  if (!aboutBody.childElementCount) {
+    try {
+      const res = await fetch("README.md");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      aboutBody.innerHTML = renderMarkdown(await res.text(), { doc: true });
+    } catch (e) {
+      aboutBody.innerHTML = `<p class="md-empty">The README couldn't be loaded (${escapeHtml(e.message)}). It's in the repository beside index.html.</p>`;
+    }
+  }
+  if (!aboutDialog.open) aboutDialog.showModal();
+  aboutDialog.querySelector(".rack__body").scrollTop = 0;
+}
+$("btn-about").addEventListener("click", openAbout);
+$("about-close").addEventListener("click", () => aboutDialog.close());
+aboutDialog.addEventListener("close", () => store.set(KEY.aboutSeen, true));
+
+whisperSelect.addEventListener("change", () => {
+  store.set(KEY.whisper, whisperSelect.value);
+  if (state.whisperKey && state.whisperKey !== whisperSelect.value && !state.whisperLoading) {
+    dropWhisper();
+    setLamp("whisper", "idle", "Loads on next take");
+    lamps.whisper.btn.disabled = false;
+  }
+});
 
 autoShape.checked = !!store.get(KEY.autoShape, false);
 autoShape.addEventListener("change", () => store.set(KEY.autoShape, autoShape.checked));
@@ -3375,6 +3567,20 @@ async function runTests() {
 }
 
 test("harness runs", () => { eq(1 + 1, 2, "arithmetic"); });
+test("renderMarkdown keeps links and images out of shaped prompts", () => {
+  const html = renderMarkdown("see [here](https://example.com) ![x](a.png)");
+  ok(!html.includes("<a ") && !html.includes("<img"), html);
+});
+test("renderMarkdown renders links, images and tables in doc mode", () => {
+  const html = renderMarkdown("[docs](samples.md) ![shot](assets/image.png)\n\n| A | B |\n| --- | --- |\n| 1 | `2` |", { doc: true });
+  ok(html.includes('<a href="samples.md"'), "link");
+  ok(html.includes('<img src="assets/image.png" alt="shot"'), "image");
+  ok(html.includes("<th>A</th>") && html.includes("<td><code>2</code></td>"), "table");
+});
+test("renderMarkdown drops non-http schemes in doc mode", () => {
+  const html = renderMarkdown("[x](javascript:alert(1))", { doc: true });
+  ok(!html.includes("<a ") && !html.includes("javascript"), html);
+});
 
 test("ocrTargetSize leaves a well-sized image alone", () => {
   eq(ocrTargetSize(1600, 900), { w: 1600, h: 900, how: "used at 1600x900" });
@@ -3459,15 +3665,16 @@ function applyGPUState() {
     setLamp("shaper", "idle", "Loads on first use");
     engineNote.textContent = "Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works. The app itself and the fast text-extraction engine are vendored, so they never need the network at all.";
   } else {
-    setLamp("whisper", "idle", "CPU — base.en");
+    setLamp("whisper", "idle", "On CPU");
     setLamp("shaper", "idle", "CPU — small model");
-    engineNote.textContent = `No WebGPU here, so Whisper runs base.en and shaping runs a 0.5B model — both on the CPU, both slower, and image extraction is limited to the fast engine. ${GPU.reason}`;
+    engineNote.textContent = `No WebGPU here, so Whisper runs a small English model and shaping runs a 0.5B model — both on the CPU, both slower, and image extraction is limited to the fast engine. ${GPU.reason}`;
   }
   lamps.shaper.btn.disabled = false;
 }
 
 renderTemplateSelect();
 renderModelSelect();
+renderWhisperSelect();
 renderSessions();
 setPromptView(store.get(KEY.view, "read"), { remember: false });
 setSourceTab(sourceTab(), { remember: false });
@@ -3516,6 +3723,19 @@ if (navigator.mediaDevices?.addEventListener) {
   navigator.mediaDevices.addEventListener("devicechange", listMics);
 }
 listMics();
+
+// A first-time visitor gets the context before the controls.
+if (!store.get(KEY.aboutSeen, false) && !new URLSearchParams(location.search).has("test")) openAbout();
+
+/* Models already on disk start loading the moment the page opens, each in its
+   own worker, so the first take or shape doesn't wait for them. Only cached
+   ones: opening Vox never starts a download nobody asked for. */
+(async function preloadCached() {
+  const w = whisperSpec();
+  if (await isCached(w.id, "transformers", w.probe)) ensureWhisper().catch(() => {});
+  const spec = modelById(modelSelect.value);
+  if (spec && await isCached(spec.id, spec.backend === "cpu" ? "transformers" : "webllm")) ensureShaper().catch(() => {});
+})();
 </script>
 </body>
 </html>

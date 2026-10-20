@@ -13,19 +13,37 @@ python3 -m http.server 43869
 
 **It has to be a secure context.** `http://localhost`, any `https://` origin, or a double-clicked `file://` all qualify. A bare IP address — `http://192.168.1.4:43869` — does not, and the browser responds by hiding `navigator.mediaDevices` and `navigator.gpu` entirely: no microphone, no WebGPU, no warning. Vox detects this at load and says so.
 
-With WebGPU (Chrome or Edge) you get Whisper large-v3-turbo and a choice of 1.5B–3B shaping models. Without it, Whisper runs `base.en` and shaping runs Qwen2.5 0.5B, both on the CPU — slower, but neither one is disabled.
+With WebGPU (Chrome or Edge) you get a choice of Whisper sizes up to large-v3-turbo and of 1.5B–3B shaping models. Without it, Whisper runs `base.en` or `small.en` and shaping runs Qwen2.5 0.5B, both on the CPU — slower, but neither one is disabled.
 
-Models download once from Hugging Face's CDN into browser storage. After that you can disconnect and everything still works. Typefaces are loaded from Google Fonts and fall back to system faces offline.
+Models download once from Hugging Face's CDN into browser storage. After that you can disconnect and everything still works.
 
 ## What leaves the machine
 
 Nothing you say, type, or paste. Three things make that hold rather than just be true of the code today:
 
-- **A Content-Security-Policy** in `index.html` lists every host the page may contact: Hugging Face and its `hf.co` CDN (model weights), `raw.githubusercontent.com` (WebLLM's compiled model libraries), and Google Fonts. The browser refuses a request anywhere else, whatever the code tries — so the promise can be checked by reading one line. The cost is that an image dragged in from another site can't be fetched; save it and choose the file.
-- **The libraries are vendored.** transformers.js 3.0.2 (with its onnxruntime WASM) and WebLLM 0.2.79 live in `assets/` beside Tesseract, unmodified, so the app itself never comes from a CDN and starts offline.
+- **A Content-Security-Policy** in `index.html` lists every host the page may contact: Hugging Face and its `hf.co` CDN (model weights) and `raw.githubusercontent.com` (WebLLM's compiled model libraries). Both are contacted only while a model downloads; once everything is cached, opening Vox makes no outside request at all. The browser refuses a request anywhere else, whatever the code tries — so the promise can be checked by reading one line. The cost is that an image dragged in from another site can't be fetched; save it and choose the file.
+- **Everything else is vendored.** transformers.js 3.0.2 (with its onnxruntime WASM), WebLLM 0.2.79 and the typefaces (latin subsets, OFL licences beside them) live in `assets/` beside Tesseract, unmodified, so the app itself never comes from a CDN and starts offline.
 - **Persistent storage is requested** the first time a model download starts, so the browser doesn't evict gigabytes of cached weights under disk pressure. Chrome grants it silently based on how much you use the site; Firefox asks. Without it, the cache is best-effort.
 
 Cached models belong to one origin in one browser: models fetched on `localhost` aren't reused by a hosted copy, and vice versa. Hosting Vox anywhere static — GitHub Pages included — serves only these files; the host never sees audio or text. Visitors are trusting that the hosted copy is this code; anyone who'd rather not can run it locally as above.
+
+## Speed
+
+- **Cached models load when the page opens.** If Whisper or the selected shaper is already on disk, it starts loading immediately, so the first take doesn't wait. Nothing that isn't cached is fetched without being asked for.
+- **Every model runs in its own Web Worker** (`workers/`), so loading and generating never freeze the page, and Whisper and the shaper load in parallel. Load timings go to the console as `[vox] whisper ready {readMs, initMs}` — time to read the weights, then session and shader setup.
+- **CPU inference is multithreaded.** That needs cross-origin isolation, which static hosts can't switch on with headers, so `sw.js` adds them; the first visit reloads once to pick it up. It only rewrites headers on same-origin responses and caches nothing.
+- **Lighter defaults.** Whisper defaults to Turbo light on WebGPU and Base on the CPU; the shaper defaults to Qwen2.5 1.5B. Both menus keep the larger options.
+
+Whisper on WebGPU, 22 seconds of synthesized dictation, headless Chrome on an Apple-silicon Mac:
+
+| Model | Download | Load from cache | Transcribe | WER |
+| --- | --- | --- | --- | --- |
+| Turbo (fp16 encoder) | 1.6 GB | 2.4 s | 2.1 s | 1.5% |
+| Turbo light (q4f16 encoder) | 700 MB | 1.7 s | 5.6 s | 1.5% |
+| Small | 410 MB | 1.3 s | 3.1 s | 4.6% |
+| Base | 206 MB | 0.8 s | 1.6 s | 1.5% |
+
+Read it with care: clean synthesized speech is easy, so the WER column barely separates the models (most of the error is "sixty" written as "60"), and real voices, accents and rooms are where the larger models earn their size. Turbo light downloads less than half of Turbo, but its quantized encoder transcribes about 2.7× slower; pick Turbo if you'll dictate a lot.
 
 ## How it works
 
