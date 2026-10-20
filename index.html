@@ -1384,6 +1384,22 @@ function setProgress(el, value) {
 }
 function hideProgress(el) { el.hidden = true; el.classList.remove("sweeping"); }
 
+/* Both libraries report a cache hit and a network fetch identically, so the
+   lamp has to ask the cache itself whether "Downloading" is true. An .onnx
+   weight file is required, not just any file: an interrupted first download
+   leaves configs behind and would otherwise read as cached. */
+async function isCached(modelId, backend = "transformers") {
+  try {
+    if (backend === "webllm") return await webllm.hasModelInCache(modelId);
+    const cache = await caches.open("transformers-cache");
+    const keys = await cache.keys();
+    return keys.some(r => r.url.includes(`/${modelId}/`) && r.url.endsWith(".onnx"));
+  } catch { return false; }
+}
+async function loadVerb(modelId, backend) {
+  return (await isCached(modelId, backend)) ? "Loading" : "Downloading";
+}
+
 function setLamp(which, ledState, text) {
   lamps[which].led.dataset.state = ledState;
   lamps[which].state.textContent = text;
@@ -1908,7 +1924,8 @@ async function ensureWhisper() {
   lamps.whisper.btn.disabled = true;
   try {
     state.whisperLarge = GPU.ok;
-    setLamp("whisper", "loading", GPU.ok ? "Downloading large-v3-turbo" : "Downloading base.en");
+    const verb = await loadVerb(GPU.ok ? WHISPER_GPU : WHISPER_CPU);
+    setLamp("whisper", "loading", GPU.ok ? `${verb} large-v3-turbo` : `${verb} base.en`);
     setProgress(whisperProgress, 0);
 
     const options = GPU.ok
@@ -2037,7 +2054,7 @@ async function ensureFlorence() {
   lamps.ocr.btn.disabled = true;
   const started = performance.now();
   try {
-    setLamp("ocr", "loading", "Downloading Florence-2");
+    setLamp("ocr", "loading", `${await loadVerb(FLORENCE)} Florence-2`);
     setProgress(ocrProgress, 0);
 
     let half = false;
@@ -2399,7 +2416,7 @@ async function ensureShaper() {
   lamps.shaper.btn.disabled = true;
   setNotice(shapeError, "");
   try {
-    setLamp("shaper", "loading", `Downloading ${spec.label}`);
+    setLamp("shaper", "loading", `${await loadVerb(spec.id, spec.backend === "cpu" ? "transformers" : "webllm")} ${spec.label}`);
     setProgress(shapeProgress, 0);
 
     if (spec.backend === "cpu") {
