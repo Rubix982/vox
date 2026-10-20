@@ -3,3 +3,6 @@
 *.wasm.js         binary
 *.traineddata     binary
 *.traineddata.gz  binary
+# Vendored transformers.js and WebLLM bundles — minified, never diff these either.
+assets/transformers/*.js  binary
+assets/web-llm/*.js       binary

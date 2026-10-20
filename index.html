@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The privacy promise, enforced by the browser rather than by the code
+     behaving. connect-src is the whole list of places Vox may reach: Hugging
+     Face (and the hf.co CDN it redirects to) for model weights, and GitHub raw
+     for WebLLM's compiled model libraries. Neither receives audio or text; a
+     request anywhere else is refused, whatever the code tries. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob: data: https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Vox — speak the instruction, paste the prompt</title>
 <meta name="description" content="Vox turns spoken instructions into structured prompts for your LM. Whisper transcribes, a local model shapes. Nothing leaves your device.">
 <!-- Inline, so the browser never falls back to requesting /favicon.ico. -->
@@ -990,7 +996,7 @@
       <span><kbd>Esc</kbd> stop</span>
       <span><kbd>⌘</kbd><kbd>V</kbd> paste an image</span>
     </div>
-    <p id="engine-note">Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works. The fast text-extraction engine is vendored in <code>assets/tesseract/</code>, so it never needs the network at all.</p>
+    <p id="engine-note">Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works. The libraries and the fast text-extraction engine are vendored in <code>assets/</code>, so they never need the network at all.</p>
     <p>Recording and WebGPU are secure-context features, so open this over <code>http://localhost</code>, <code>https://</code>, or as a double-clicked <code>file://</code> — a bare IP address like <code>http://192.168.1.4:43869</code> silently disables both. WebGPU in Chrome or Edge gets you Whisper large-v3-turbo and the bigger shaping models; without it, both fall back to smaller models on the CPU.</p>
   </footer>
 </main>
@@ -1022,8 +1028,12 @@
 
 <script type="module">
 // Namespace import, not named: a missing export here would otherwise kill the whole module at link time.
-import * as TF from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2";
-import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.79";
+/* Vendored like Tesseract below: from a CDN these are fetched on every page
+   load, so offline the page only starts if the HTTP cache still has them.
+   transformers@3.0.2 (dist/transformers.min.js) and web-llm@0.2.79
+   (lib/index.js), unmodified. */
+import * as TF from "./assets/transformers/transformers.min.js";
+import * as webllm from "./assets/web-llm/web-llm.js";
 /* Vendored, not CDN: Tesseract caches only its language data, so a CDN
    worker and core would make OCR the one part of Vox that needs the network.
    The ESM build has a default export only — a named import throws. */
@@ -1033,6 +1043,9 @@ const { pipeline, env, TextStreamer, InterruptableStoppingCriteria,
         AutoProcessor, AutoTokenizer, Florence2ForConditionalGeneration, RawImage } = TF;
 const { createWorker } = Tesseract;
 env.allowLocalModels = false;
+/* Otherwise onnxruntime fetches its 21MB WASM from jsDelivr, which is both a
+   network dependency and a host the CSP does not allow. */
+env.backends.onnx.wasm.wasmPaths = new URL("./assets/transformers/", location.href).href;
 
 /* ────────────────────────────────────────────────────────────
    WebGPU probe
@@ -1399,7 +1412,25 @@ async function isCached(modelId, backend = "transformers") {
   } catch { return false; }
 }
 async function loadVerb(modelId, backend) {
-  return (await isCached(modelId, backend)) ? "Loading" : "Downloading";
+  if (await isCached(modelId, backend)) return "Loading";
+  requestPersistence();
+  return "Downloading";
+}
+
+/* Without this, cached models are "best effort" storage, which the browser
+   may evict under disk pressure — and a 2GB download silently starts over.
+   Asked only when a download is about to start, so where the browser shows
+   a prompt (Firefox) it appears with an obvious reason. Asked once per load. */
+let persistAsked = false;
+async function requestPersistence() {
+  if (persistAsked || !navigator.storage?.persist) return;
+  persistAsked = true;
+  try {
+    const granted = (await navigator.storage.persisted()) || (await navigator.storage.persist());
+    console.log("[vox] persistent storage", { granted });
+  } catch (e) {
+    console.warn("[vox] persistent storage request failed", { error: e.message });
+  }
 }
 
 function setLamp(which, ledState, text) {
@@ -2834,7 +2865,9 @@ drop.addEventListener("drop", async (e) => {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     await loadImage(await res.blob(), "dragged from another tab");
   } catch (err) {
-    setNotice(extractError, `That image is on another site and it refused the request (${err.message}). Save it and choose the file instead.`);
+    /* Usually the Content-Security-Policy: Vox may only reach the model
+       hosts, so an image on any other site cannot be fetched. */
+    setNotice(extractError, "Vox can't fetch images from other sites — it only talks to the model hosts. Save the image and choose the file, or paste it.");
     console.warn("[vox] cross-origin image drop failed", { url, error: err.message });
   }
 });
@@ -3299,7 +3332,7 @@ function applyGPUState() {
   if (GPU.ok) {
     setLamp("whisper", "idle", "Loads on first use");
     setLamp("shaper", "idle", "Loads on first use");
-    engineNote.textContent = "Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works. The fast text-extraction engine is vendored, so it never needs the network at all.";
+    engineNote.textContent = "Models download once from Hugging Face's CDN and stay in browser storage. After that, disconnect and everything still works. The app itself and the fast text-extraction engine are vendored, so they never need the network at all.";
   } else {
     setLamp("whisper", "idle", "CPU — base.en");
     setLamp("shaper", "idle", "CPU — small model");

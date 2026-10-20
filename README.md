@@ -17,6 +17,16 @@ With WebGPU (Chrome or Edge) you get Whisper large-v3-turbo and a choice of 1.5B
 
 Models download once from Hugging Face's CDN into browser storage. After that you can disconnect and everything still works. Typefaces are loaded from Google Fonts and fall back to system faces offline.
 
+## What leaves the machine
+
+Nothing you say, type, or paste. Three things make that hold rather than just be true of the code today:
+
+- **A Content-Security-Policy** in `index.html` lists every host the page may contact: Hugging Face and its `hf.co` CDN (model weights), `raw.githubusercontent.com` (WebLLM's compiled model libraries), and Google Fonts. The browser refuses a request anywhere else, whatever the code tries — so the promise can be checked by reading one line. The cost is that an image dragged in from another site can't be fetched; save it and choose the file.
+- **The libraries are vendored.** transformers.js 3.0.2 (with its onnxruntime WASM) and WebLLM 0.2.79 live in `assets/` beside Tesseract, unmodified, so the app itself never comes from a CDN and starts offline.
+- **Persistent storage is requested** the first time a model download starts, so the browser doesn't evict gigabytes of cached weights under disk pressure. Chrome grants it silently based on how much you use the site; Firefox asks. Without it, the cache is best-effort.
+
+Cached models belong to one origin in one browser: models fetched on `localhost` aren't reused by a hosted copy, and vice versa. Hosting Vox anywhere static — GitHub Pages included — serves only these files; the host never sees audio or text. Visitors are trusting that the hosted copy is this code; anyone who'd rather not can run it locally as above.
+
 ## How it works
 
 1. **Capture** — `MediaRecorder` grabs the take; a canvas scope shows level so you know it heard you. Pause and resume hold a single take open, so one transcript covers the whole thing; the timecode counts recorded time only. Stopping and recording again appends the new transcript to what's already in the box.
