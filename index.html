@@ -255,6 +255,38 @@
   .led[data-state="off"]     { background: #4a2f2b; }
   @keyframes throb { 50% { opacity: 0.3; } }
 
+  /* One card, positioned beside whichever lamp is hovered or focused. Fixed,
+     so the rail's own scrolling never clips it. */
+  .lamp-card {
+    position: fixed;
+    z-index: 50;
+    width: 290px;
+    max-width: calc(100vw - 32px);
+    background: var(--chassis-hi);
+    border: 1px solid var(--edge);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    padding: 12px 14px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--ink-dim);
+    pointer-events: none;
+  }
+  .lamp-card[hidden] { display: none; }
+  .lamp-card h4 {
+    margin: 0 0 4px;
+    font-family: var(--display);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .lamp-card p { margin: 0 0 8px; }
+  .lamp-card dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; }
+  .lamp-card dt { color: var(--ink-faint); }
+  .lamp-card dd { margin: 0; color: var(--ink); font-family: var(--mono); font-size: 12px; }
+  .lamp-card .hint { margin: 8px 0 0; color: var(--ink-faint); font-size: 12px; }
+
   /* ---------- Modules ---------- */
 
   .module {
@@ -831,19 +863,20 @@
   <section class="rail__block" aria-labelledby="silk-machine">
     <div class="rail__head"><span class="silk" id="silk-machine">Machine</span></div>
     <div class="lamps">
-      <button class="lamp-btn" id="lamp-whisper" type="button" title="Load the transcription model now, before you record">
+      <button class="lamp-btn" id="lamp-whisper" type="button" aria-describedby="lamp-card">
         <span class="led" id="led-whisper" data-state="idle"></span>
         Whisper <span class="state" id="state-whisper">Loads on first use</span>
       </button>
-      <button class="lamp-btn" id="lamp-shaper" type="button" title="Load the shaping model now, before you record">
+      <button class="lamp-btn" id="lamp-shaper" type="button" aria-describedby="lamp-card">
         <span class="led" id="led-shaper" data-state="idle"></span>
         Shaper <span class="state" id="state-shaper">Loads on first use</span>
       </button>
-      <button class="lamp-btn" id="lamp-ocr" type="button" title="Load the text-extraction engine now, before you need it">
+      <button class="lamp-btn" id="lamp-ocr" type="button" aria-describedby="lamp-card">
         <span class="led" id="led-ocr" data-state="idle"></span>
         OCR <span class="state" id="state-ocr">Loads on first use</span>
       </button>
     </div>
+    <div class="lamp-card" id="lamp-card" role="tooltip" hidden></div>
   </section>
 </aside>
 
@@ -2285,9 +2318,12 @@ function stopRecording({ discard = false } = {}) {
   btnPause.hidden = true;
   btnPause.classList.remove("lit");
   if (!discard) {
-    btnRecordLabel.textContent = "Transcribing";
+    /* A first-visit take can end before the model it was warming has
+       arrived; saying "Transcribing" then would hide a download. */
+    const label = state.transcriber ? "Transcribing" : "Waiting for model…";
+    btnRecordLabel.textContent = label;
     btnRecord.disabled = true;
-    captureState.textContent = "Transcribing";
+    captureState.textContent = label;
   } else {
     btnRecordLabel.textContent = "Start recording";
     captureState.textContent = "Ready";
@@ -2301,9 +2337,13 @@ async function onRecordingStopped() {
 
   const before = raw.value.trim();
   try {
-    setProgress(whisperProgress, null);
+    // While the model is still downloading, its own progress owns the bar.
+    if (state.transcriber) setProgress(whisperProgress, null);
     const audio = await decodeTo16kMono(blob);
     const transcriber = await ensureWhisper();
+    btnRecordLabel.textContent = "Transcribing";
+    captureState.textContent = "Transcribing";
+    setProgress(whisperProgress, null);
     const out = await transcriber(audio, {
       chunk_length_s: 30,
       stride_length_s: 5,
@@ -3043,6 +3083,91 @@ lamps.shaper.btn.addEventListener("click", async () => {
   else setNotice(shapeError, "");
   ensureShaper().catch(e => setNotice(shapeError, e.message));
 });
+
+/* Lamp details on hover. Sizes are the files this build actually requests
+   (the dtypes chosen in each loader), measured from the Hugging Face repos,
+   so they move if a dtype does. WebLLM publishes GPU memory, not download
+   size, so the shaper says that instead of guessing. */
+const lampCard = $("lamp-card");
+// The rail is sticky, which makes it a stacking context of its own; inside it
+// no z-index can lift the card over the work column.
+document.body.append(lampCard);
+
+async function lampDetails(which) {
+  if (which === "whisper") {
+    const id = GPU.ok ? WHISPER_GPU : WHISPER_CPU;
+    return {
+      title: "Whisper — speech to text",
+      body: "Turns your recording into the transcript. Starts loading the moment you press record, so it's ready when you stop.",
+      rows: [
+        ["Model", GPU.ok ? "large-v3-turbo" : "base.en"],
+        ["Runs on", GPU.ok ? "GPU (WebGPU)" : "CPU"],
+        ["Download", GPU.ok ? "≈1.6 GB" : "≈77 MB"],
+        ["Stored", state.transcriber ? "loaded" : (await isCached(id)) ? "cached" : "not yet"],
+      ],
+    };
+  }
+  if (which === "shaper") {
+    const spec = modelById(modelSelect.value);
+    if (!spec) return { title: "Shaper", body: "No shaping model is available.", rows: [] };
+    const cpu = spec.backend === "cpu";
+    const loaded = state.engine && state.engineModelId === spec.id;
+    return {
+      title: "Shaper — transcript to prompt",
+      body: "Rewrites the transcript into a structured prompt using the selected template. Change the model in the menu beside the template.",
+      rows: [
+        ["Model", spec.label],
+        ["Runs on", cpu ? "CPU" : "GPU (WebGPU)"],
+        cpu ? ["Download", "≈786 MB"] : ["GPU memory", spec.note],
+        ["Stored", loaded ? "loaded" : (await isCached(spec.id, cpu ? "transformers" : "webllm")) ? "cached" : "not yet"],
+      ],
+    };
+  }
+  const photo = ocrEngine.value === "photo";
+  return {
+    title: "OCR — text from images",
+    body: "Reads text out of a screenshot or photo on the Image tab. Fast is for screens; Photo is for angled or real-world shots.",
+    rows: [
+      ["Fast", "Tesseract · CPU · bundled, no download"],
+      ["Photo", GPU.ok ? "Florence-2 · GPU · ≈357 MB" : "Florence-2 · needs WebGPU"],
+      ["Selected", photo ? "Photo" : "Fast"],
+      ["Stored", photo
+        ? (state.florence ? "loaded" : (await isCached(FLORENCE)) ? "cached" : "not yet")
+        : (state.tesseract ? "loaded" : "bundled with the app")],
+    ],
+  };
+}
+
+let lampShown = null;
+async function showLampCard(which) {
+  lampShown = which;
+  const d = await lampDetails(which);
+  if (lampShown !== which) return;   // pointer moved on while the cache was checked
+  const esc = (t) => String(t).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  lampCard.innerHTML =
+    `<h4>${esc(d.title)}</h4><p>${esc(d.body)}</p>` +
+    `<dl>${d.rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` +
+    (lamps[which].btn.disabled ? "" : `<p class="hint">Click to load it now.</p>`);
+  lampCard.hidden = false;
+
+  // Beside the lamp where there's room, otherwise below it (the narrow layout).
+  const r = lamps[which].btn.getBoundingClientRect();
+  const w = lampCard.offsetWidth, h = lampCard.offsetHeight;
+  let left = r.right + 10, top = r.top + r.height / 2 - h / 2;
+  if (left + w > innerWidth - 16) { left = Math.max(16, Math.min(r.left, innerWidth - w - 16)); top = r.bottom + 8; }
+  top = Math.max(16, Math.min(top, innerHeight - h - 16));
+  lampCard.style.left = `${left}px`;
+  lampCard.style.top = `${top}px`;
+}
+function hideLampCard() { lampShown = null; lampCard.hidden = true; }
+
+for (const which of Object.keys(lamps)) {
+  const btn = lamps[which].btn;
+  btn.addEventListener("mouseenter", () => showLampCard(which));
+  btn.addEventListener("focus", () => showLampCard(which));
+  btn.addEventListener("mouseleave", hideLampCard);
+  btn.addEventListener("blur", hideLampCard);
+}
 
 autoShape.checked = !!store.get(KEY.autoShape, false);
 autoShape.addEventListener("change", () => store.set(KEY.autoShape, autoShape.checked));
